@@ -2,15 +2,20 @@
 name = "runner"
 version = "0.1.0"
 dependencies = [
- "easy-shortcuts 0.1.0",
- "lapp 0.2.0",
+ "easy-shortcuts 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "lapp 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
 name = "easy-shortcuts"
-version = "0.1.0"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "lapp"
-version = "0.2.0"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
 
+[metadata]
+"checksum easy-shortcuts 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)" = "1a1d9d73462dcf43a993e1b9ea1a875b3786ba8d161334dc01148e1611097dc1"
+"checksum lapp 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)" = "b7ca25beec6e4b6fd70f6a33e751ecfe61c5e513a03774722d66a611a9322466"
