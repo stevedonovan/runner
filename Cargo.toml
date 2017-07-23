@@ -16,4 +16,6 @@ license = "MIT"
 [dependencies]
 easy-shortcuts = "0.2"
 lapp = "0.2"
+open = "1.2"
+
 
