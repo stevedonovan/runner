@@ -1,4 +1,6 @@
-// a simple Rust 'script' runner.
+//! A Rust snippet runner.
+//!
+//! Please see [readme](https://github.com/stevedonovan/runner/blob/master/readme.md)
 extern crate easy_shortcuts as es;
 extern crate lapp;
 use es::traits::*;
@@ -10,7 +12,7 @@ use std::path::PathBuf;
 mod crate_utils;
 mod platform;
 
-use platform::{open,EXE};
+use platform::{open,edit,EXE};
 
 fn rustup_lib() -> String {
     es::shell("rustc --print sysroot") + "/lib"
@@ -63,17 +65,27 @@ fn static_cache_dir() -> PathBuf {
     runner_directory().join(STATIC_CACHE)
 }
 
+fn static_cache_dir_check(args: &lapp::Args) -> PathBuf {
+    let static_cache = static_cache_dir();
+    if ! static_cache.exists() {
+        args.quit("please build static cache with --create first");
+    }
+    static_cache
+}
+
 fn build_static_cache() {
     cargo(&["build"]);
     cargo(&["build","--release"]);
     cargo(&["doc"]);
 }
 
-fn create_static_cache(crates: &[String]) {
+fn create_static_cache(crates: &[String], create: bool) {
     use std::io::prelude::*;
     let mut home = runner_directory();
     env::set_current_dir(&home).or_die("cannot change to home directory");
-    cargo(&["new","--bin",STATIC_CACHE]);
+    if create {
+        cargo(&["new","--bin",STATIC_CACHE]);
+    }
     home.push(STATIC_CACHE);
     env::set_current_dir(&home).or_die("could not create static cache");
     {
@@ -148,7 +160,8 @@ Compile and run small Rust snippets
   -s, --static build statically (default is dynamic)
   -O, --optimize optimized static build
   -c, --create (string...) initialize the static cache with crates
-  -e, --edit  edit the static cache
+  -a, --add  (string...) add new crates to the cache (after --create)
+  -e, --edit  edit the static cache Cargo.toml
   -b, --build rebuild the static cache
   -d, --doc  display
   -P, --crate-path show path of crate source in Cargo cache
@@ -162,15 +175,19 @@ fn main() {
 
     let crates = args.get_strings("create");
     if crates.len() > 0 {
-        create_static_cache(&crates);
+        create_static_cache(&crates,true);
+        return;
+    }
+    let crates = args.get_strings("add");
+    if crates.len() > 0 {
+        static_cache_dir_check(&args);
+        create_static_cache(&crates,false);
         return;
     }
 
+
     if args.get_bool("edit") || args.get_bool("build") || args.get_bool("doc") {
-        let static_cache = static_cache_dir();
-        if ! static_cache.exists() {
-            args.quit("please build static cache with --create first");
-        }
+        let static_cache = static_cache_dir_check(&args);
         if args.get_bool("build") {
             env::set_current_dir(&static_cache).or_die("static cache wasn't a directory?");
             build_static_cache();
@@ -180,7 +197,7 @@ fn main() {
             open(&docs);
         } else {
             let toml = static_cache.join("Cargo.toml");
-            open(&toml);
+            edit(&toml);
         }
         return;
     }
