@@ -1,0 +1,16 @@
+[root]
+name = "runner"
+version = "0.1.0"
+dependencies = [
+ "easy-shortcuts 0.1.0",
+ "lapp 0.2.0",
+]
+
+[[package]]
+name = "easy-shortcuts"
+version = "0.1.0"
+
+[[package]]
+name = "lapp"
+version = "0.2.0"
+
