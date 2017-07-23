@@ -23,7 +23,7 @@ pub fn edit(p: &Path) {
         ed
     } else
     if cfg!(target_os = "macos") {
-        "emacs".into()
+        "vim".into()
     } else {
         "open".into()
     };
