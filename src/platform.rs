@@ -1,5 +1,8 @@
 use std::path::Path;
-use super::es;
+use std::env;
+use std::process::Command;
+use super::es::traits::*;
+extern crate open;
 
 #[cfg(target_os = "windows")]
 pub const EXE: &str = "exe";
@@ -8,17 +11,27 @@ pub const EXE: &str = "exe";
 pub const EXE: &str = "";
 
 
-#[cfg(target_os = "windows")]
-pub const OPEN: &str = "start";
-
-#[cfg(target_os = "macos")]
-pub const OPEN: &str = "open";
-
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
-pub const OPEN: &str = "xdg-open";
-
 pub fn open(p: &Path) {
-    es::shell(&format!("{} {:?}",OPEN,p));
+    open::that(p).or_die("cannot open");
+}
+
+pub fn edit(p: &Path) {
+    let editor = if let Ok(ed) = env::var("VISUAL") {
+        ed
+    } else
+    if let Ok(ed) = env::var("EDITOR") {
+        ed
+    } else
+    if cfg!(target_os = "macos") {
+        "emacs".into()
+    } else {
+        "open".into()
+    };
+    if editor == "open" {
+        open(p);
+    } else {
+        Command::new(&editor).arg(&p).status().or_die("Cannot find editor");
+    }
 }
 
 
