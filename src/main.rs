@@ -159,20 +159,40 @@ const USAGE: &str = "
 Compile and run small Rust snippets
   -s, --static build statically (default is dynamic)
   -O, --optimize optimized static build
+  -e, --expression evaluate an expression
+  -i, --iterator evaluate an iterator
+  -n, --lines evaluate expression over stdin; 'line' is defined
+  
+  Cache Management:
   -c, --create (string...) initialize the static cache with crates
   -a, --add  (string...) add new crates to the cache (after --create)
   -e, --edit  edit the static cache Cargo.toml
   -b, --build rebuild the static cache
   -d, --doc  display
+  -E, --edit-prelude edit the default prelude for snippets
+  
+  Dynamic compilation:
   -P, --crate-path show path of crate source in Cargo cache
   -C, --compile  compile crate dynamically (limited)
-  <program> (string) Rust program or snippet
+  
+  <program> (string) Rust program, snippet or expression
   <args> (string...) arguments to pass to program
 ";
 
 fn main() {
     let args = lapp::parse_args(USAGE);
+    
+    if args.get_bool("edit-prelude") {
+        let mut rdir = runner_directory();
+        if ! rdir.exists() {
+            args.quit("Runner dir not created yet. Run any snippet first");
+        }
+        rdir.push("prelude");
+        edit(&rdir);
+        return;
+    }
 
+    // Static Cache Management
     let crates = args.get_strings("create");
     if crates.len() > 0 {
         create_static_cache(&crates,true);
@@ -184,8 +204,7 @@ fn main() {
         create_static_cache(&crates,false);
         return;
     }
-
-
+    
     if args.get_bool("edit") || args.get_bool("build") || args.get_bool("doc") {
         let static_cache = static_cache_dir_check(&args);
         if args.get_bool("build") {
@@ -201,16 +220,17 @@ fn main() {
         }
         return;
     }
+    
+    let first_arg = args.get_string("program");
+    let file = PathBuf::from(&first_arg);
 
-    let file = PathBuf::from(args.get_string("program"));
-
+    // Dynamically linking crates (experimental!)
     if args.get_bool("crate-path") || args.get_bool("compile") {
         let (crate_path,crate_name) = if file.exists() {
             let filename = crate_utils::path_file_name(&file);
             (file, filename)
         } else {
-            let arg = args.get_string("program");
-            (crate_utils::cache_path(&arg), arg)
+            (crate_utils::cache_path(&first_arg), first_arg)
         };
         if args.get_bool("crate-path") {
             println!("{}",crate_path.display());
@@ -228,33 +248,60 @@ fn main() {
         }
         return;
     }
-    let ext = file.extension().or_die("no file extension");
-    if ext != "rs" {
-        es::quit("file extension must be .rs");
-    }
 
     let build_static = args.get_bool("static");
     let optimize = args.get_bool("optimize");
 
     // we'll pass rest of arguments to program
-    let args = args.get_strings("args");
+    let program_args = args.get_strings("args");
 
     // we are going to put the expanded source and resulting exe in temp
     let out_dir = "temp";
     if ! fs::metadata(out_dir).is_dir() {
         fs::create_dir(out_dir).or_die("cannot create temp directory here");
-    }
-
-    let mut code = es::read_to_string(&file);
+    }   
 
     let (prelude,cache) = prelude_and_cache(build_static, optimize);
 
+    let mut snippet = false;
+    let mut code = if args.get_bool("expression") {
+        // Evaluating an expression: just print it out.
+        format!("let res = {};\nprintln!(\"{{:?}}\",res);", first_arg)
+    } else
+    if args.get_bool("iterator") {
+        // The expression is anything that implements IntoIterator
+        format!("let iter = {};\n for val in iter {{ println!(\"{{:?}}\",val);}}", first_arg)
+    } else
+    if args.get_bool("lines") {
+        // The variable 'line' is available to an expression, evaluated for each line in stdin
+        format!("
+            let stdin = io::stdin();
+            for line in stdin.lock().lines() {{
+                let val = {};
+                println!(\"{{:?}}\",val?);
+            }}    
+            ", first_arg)
+    } else { // otherwise, just a file
+        // for now, we insist it has the usual Rust extension...
+        let ext = file.extension().or_die("no file extension");
+        if ext != "rs" {
+            es::quit("file extension must be .rs");
+        }
+        snippet = true;
+        es::read_to_string(&file)
+    };
+
+    // proper Rust programs are accepted (this is a bit rough)
     if code.find("fn main").is_none() {
         code = massage_snippet(code,prelude);
     }
 
     let mut out_file = PathBuf::from(out_dir);
-    out_file.push(&file);
+    if snippet {
+        out_file.push(&file);        
+    } else {
+        out_file.push("tmp.rs");
+    }
     let mut program = out_file.clone();
     program.set_extension(EXE);
 
@@ -278,7 +325,7 @@ fn main() {
     if ! build_static {
         builder.env("LD_LIBRARY_PATH",format!("{}:{}",rustup_lib(),cache.display()));
     }
-    builder.args(&args)
+    builder.args(&program_args)
         .status()
         .or_die(&format!("can't run program {:?}",program));
 
