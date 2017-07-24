@@ -139,6 +139,43 @@ But anything more complicated is hard;  dynamic linking is not a priority for
 Rust tooling at the moment, and does not support it well enough without terrible
 hacking and use of unstable features.
 
+There are a few Perl-inspired features. The `-e` flag compiles and evaluates an
+_expression_.  You can use it as an unusually strict desktop calculator:
+
+```
+$ runner -e "10 + 20*4.5"
+error[E0277]: the trait bound `{integer}: std::ops::Mul<{float}>` is not satisfied
+  --> temp/tmp.rs:20:22
+   |
+20 |     let res = 10 + 20*4.5;
+   |                      ^ no implementation for `{integer} * {float}`   
+```
+
+Likewise, you have to say `1.2f64.sin()` because `1.2` has ambiguous type.
+
+This strictness is very useful if you quickly want to find out how Rust
+will evaluate an expression!
+
+`-i` (or `--iterator`) evaluates iterator expressions and does a debug
+dump of the results:
+
+```
+$ runner -i '(0..5).map(|i| (10*i,100*i))'
+(0, 0)
+(10, 100)
+(20, 200)
+(30, 300)
+(40, 400)
+```
+
+And finally `-n` (or `--lines`) evaluates the expression for each line in 
+standard input:
+
+```
+$ echo "hello there" | runner -n 'line.to_uppercase()'
+"HELLO THERE"
+```
+
 
 
 
