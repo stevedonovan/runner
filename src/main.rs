@@ -18,7 +18,6 @@ fn rustup_lib() -> String {
     es::shell("rustc --print sysroot") + "/lib"
 }
 
-
 // this will be initially written to ~/.cargo/.runner/prelude and
 // can then be edited.
 const PRELUDE: &'static str = "
@@ -38,8 +37,6 @@ macro_rules! debug {
 }
 
 ";
-
-
 
 fn runner_directory() -> PathBuf {
     let mut home = env::home_dir().or_die("no home!");
@@ -98,14 +95,22 @@ fn create_static_cache(crates: &[String], create: bool) {
     build_static_cache();
 }
 
-fn prelude_and_cache(build_static: bool, optimize: bool) -> (String,PathBuf) {
-    let mut home = runner_directory();
+fn get_prelude() -> String {
+    let home = runner_directory();
     let pristine = ! home.is_dir();
     if pristine {
         fs::create_dir(&home).or_die("cannot create runner directory");
     }
-    let mut prelude = home.clone();
-    prelude.push("prelude");
+    let prelude = home.join("prelude");
+    if pristine {
+        es::write_all(&prelude,PRELUDE);
+        fs::create_dir(&home.join(DYNAMIC_CACHE)).or_die("cannot create dynamic cache");
+    }
+    es::read_to_string(&prelude)
+}
+
+fn get_cache(build_static: bool, optimize: bool) -> PathBuf {
+    let mut home = runner_directory();
     let scache;
     let cache = if build_static {
         let dir = if optimize {"release"} else {"debug"};
@@ -113,11 +118,7 @@ fn prelude_and_cache(build_static: bool, optimize: bool) -> (String,PathBuf) {
         &scache
     } else {DYNAMIC_CACHE};
     home.push(cache);
-    if pristine {
-        es::write_all(&prelude,PRELUDE);
-        fs::create_dir(&home).or_die("cannot create dynamic cache");
-    }
-    (es::read_to_string(&prelude),home)
+    home
 }
 
 fn massage_snippet(code: String, prelude: String) -> String {
@@ -162,7 +163,7 @@ Compile and run small Rust snippets
   -e, --expression evaluate an expression
   -i, --iterator evaluate an iterator
   -n, --lines evaluate expression over stdin; 'line' is defined
-  
+
   Cache Management:
   -c, --create (string...) initialize the static cache with crates
   -a, --add  (string...) add new crates to the cache (after --create)
@@ -170,24 +171,21 @@ Compile and run small Rust snippets
   -b, --build rebuild the static cache
   -d, --doc  display
   -E, --edit-prelude edit the default prelude for snippets
-  
+
   Dynamic compilation:
   -P, --crate-path show path of crate source in Cargo cache
   -C, --compile  compile crate dynamically (limited)
-  
+
   <program> (string) Rust program, snippet or expression
   <args> (string...) arguments to pass to program
 ";
 
 fn main() {
     let args = lapp::parse_args(USAGE);
-    
+    let prelude = get_prelude();
+
     if args.get_bool("edit-prelude") {
-        let mut rdir = runner_directory();
-        if ! rdir.exists() {
-            args.quit("Runner dir not created yet. Run any snippet first");
-        }
-        rdir.push("prelude");
+        let rdir = runner_directory().join("prelude");
         edit(&rdir);
         return;
     }
@@ -204,7 +202,7 @@ fn main() {
         create_static_cache(&crates,false);
         return;
     }
-    
+
     if args.get_bool("edit") || args.get_bool("build") || args.get_bool("doc") {
         let static_cache = static_cache_dir_check(&args);
         if args.get_bool("build") {
@@ -220,7 +218,7 @@ fn main() {
         }
         return;
     }
-    
+
     let first_arg = args.get_string("program");
     let file = PathBuf::from(&first_arg);
 
@@ -236,7 +234,7 @@ fn main() {
             println!("{}",crate_path.display());
         } else {
             let valid_crate_name = crate_name.replace('-',"_");
-            let (_,cache) = prelude_and_cache(false, false);
+            let cache = get_cache(false, false);
             process::Command::new("rustc")
                 .args(&["-C","prefer-dynamic"]).args(&["-C","debuginfo=0"])
                 .arg("-L").arg(&cache)
@@ -259,9 +257,9 @@ fn main() {
     let out_dir = "temp";
     if ! fs::metadata(out_dir).is_dir() {
         fs::create_dir(out_dir).or_die("cannot create temp directory here");
-    }   
+    }
 
-    let (prelude,cache) = prelude_and_cache(build_static, optimize);
+    let cache = get_cache(build_static, optimize);
 
     let mut snippet = false;
     let mut code = if args.get_bool("expression") {
@@ -277,9 +275,10 @@ fn main() {
         format!("
             let stdin = io::stdin();
             for line in stdin.lock().lines() {{
+                let line = line?;
                 let val = {};
-                println!(\"{{:?}}\",val?);
-            }}    
+                println!(\"{{:?}}\",val);
+            }}
             ", first_arg)
     } else { // otherwise, just a file
         // for now, we insist it has the usual Rust extension...
@@ -298,7 +297,7 @@ fn main() {
 
     let mut out_file = PathBuf::from(out_dir);
     if snippet {
-        out_file.push(&file);        
+        out_file.push(&file);
     } else {
         out_file.push("tmp.rs");
     }
