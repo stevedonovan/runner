@@ -63,7 +63,7 @@ However, the static option is much more flexible. You can easily create a static
 cache with some common crates:
 
 ```
-$ runner -c 'time json regex'
+$ runner --create 'time json regex'
 ```
 
 You can add as many crates if you like - number of available dependencies doesn't
@@ -105,24 +105,35 @@ any error return.
 `runner` provides various utilities for managing the static cache:
 
 ```
-$ runner --help
+$ runner -h
 Compile and run small Rust snippets
   -s, --static build statically (default is dynamic)
   -O, --optimize optimized static build
-  -c, --create (string...) initialize the static cache with crates
-  -e, --edit  edit the static cache
-  -b, --build rebuild the static cache
-  -d, --doc  display
+  -e, --expression evaluate an expression
+  -i, --iterator evaluate an iterator
+  -n, --lines evaluate expression over stdin; 'line' is defined
+
+  Cache Management:
+  --create (string...) initialize the static cache with crates
+  --add  (string...) add new crates to the cache (after --create)
+  --edit  edit the static cache Cargo.toml
+  --build rebuild the static cache
+  --doc  display
+  --edit-prelude edit the default prelude for snippets
+
+  Dynamic compilation:
   -P, --crate-path show path of crate source in Cargo cache
   -C, --compile  compile crate dynamically (limited)
-  <program> (string) Rust program or snippet
+
+  <program> (string) Rust program, snippet or expression
   <args> (string...) arguments to pass to program
+
 ```
 
-You can say `runner -e` to edit the static cache `Cargo.toml`, and `runner -b` to
+You can say `runner --edit` to edit the static cache `Cargo.toml`, and `runner --build` to
 rebuild the cache afterwards. The cache is built for both debug and release mode,
 so using `-sO` you can build snippets in release mode. Documentation is also built
-for the cache, and `runner -d` will open that documentation in the browser. (It's
+for the cache, and `runner --doc` will open that documentation in the browser. (It's
 always nice to have local docs, especially in bandwidth-starved situations.)
 
 It would be good to provide such an experience for the dynamic-link case, since
@@ -148,7 +159,7 @@ error[E0277]: the trait bound `{integer}: std::ops::Mul<{float}>` is not satisfi
   --> temp/tmp.rs:20:22
    |
 20 |     let res = 10 + 20*4.5;
-   |                      ^ no implementation for `{integer} * {float}`   
+   |                      ^ no implementation for `{integer} * {float}`
 ```
 
 Likewise, you have to say `1.2f64.sin()` because `1.2` has ambiguous type.
@@ -168,7 +179,17 @@ $ runner -i '(0..5).map(|i| (10*i,100*i))'
 (40, 400)
 ```
 
-And finally `-n` (or `--lines`) evaluates the expression for each line in 
+Any extra command-line arguments are available for these commands, so:
+
+```
+$ runner -i 'env::args().enumerate()' one 'two 2' 3
+(0, "temp/tmp")
+(1, "one")
+(2, "two 2")
+(3, "3")
+```
+
+And finally `-n` (or `--lines`) evaluates the expression for each line in
 standard input:
 
 ```
