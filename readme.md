@@ -27,8 +27,8 @@ println!("Hello, World!")
 $ runner print.rs
 Hello, World!
 ```
-It adds the necessary boilerplate and creates a proper Rust program in `temp`,
-together with a editable prelude, which is initially:
+It adds the necessary boilerplate and creates a proper Rust program in `~/.cargo/.runner/bin`,
+prefixed with a prelude, which is initially:
 
 ```rust
 #![allow(unused_imports)]
@@ -56,10 +56,11 @@ _default_ it links the snippet _dynamically_ which is significantly faster. This
 hello-world snippet takes 0.337s to build on my machine, but building statically with
 `runner -s print.rs` takes 0.545s.
 
-In both cases, the executable is `temp/print` - the dynamically-linked version can't
-be run standalone unless you make the Rust runtime available globally.
+In both cases, the executable goes into the same directory as the expanded code  - but
+the dynamically-linked version can't be run standalone unless you make the Rust runtime
+available globally.
 
-However, the static option is much more flexible. You can easily create a static
+The static option is much more flexible. You can easily create a static
 cache with some common crates:
 
 ```

@@ -95,6 +95,8 @@ fn create_static_cache(crates: &[String], create: bool) {
     build_static_cache();
 }
 
+// this is always called first and has the important role to ensure that
+// runner's directory structure is created properly.
 fn get_prelude() -> String {
     let home = runner_directory();
     let pristine = ! home.is_dir();
@@ -102,9 +104,13 @@ fn get_prelude() -> String {
         fs::create_dir(&home).or_die("cannot create runner directory");
     }
     let prelude = home.join("prelude");
+    let bin = home.join("bin");
     if pristine {
         es::write_all(&prelude,PRELUDE);
         fs::create_dir(&home.join(DYNAMIC_CACHE)).or_die("cannot create dynamic cache");
+    }
+    if pristine || ! bin.is_dir() {
+        fs::create_dir(&bin).or_die("cannot create output directory");
     }
     es::read_to_string(&prelude)
 }
@@ -253,12 +259,6 @@ fn main() {
     // we'll pass rest of arguments to program
     let program_args = args.get_strings("args");
 
-    // we are going to put the expanded source and resulting exe in temp
-    let out_dir = "temp";
-    if ! fs::metadata(out_dir).is_dir() {
-        fs::create_dir(out_dir).or_die("cannot create temp directory here");
-    }
-
     let cache = get_cache(build_static, optimize);
 
     let mut snippet = false;
@@ -295,7 +295,8 @@ fn main() {
         code = massage_snippet(code,prelude);
     }
 
-    let mut out_file = PathBuf::from(out_dir);
+    // we are going to put the expanded source and resulting exe in the runner bin dir
+    let mut out_file = runner_directory().join("bin");
     if snippet {
         out_file.push(&file);
     } else {
