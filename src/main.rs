@@ -165,12 +165,12 @@ Compile and run small Rust snippets
   -n, --lines evaluate expression over stdin; 'line' is defined
 
   Cache Management:
-  -c, --create (string...) initialize the static cache with crates
-  -a, --add  (string...) add new crates to the cache (after --create)
-  -e, --edit  edit the static cache Cargo.toml
-  -b, --build rebuild the static cache
-  -d, --doc  display
-  -E, --edit-prelude edit the default prelude for snippets
+  --create (string...) initialize the static cache with crates
+  --add  (string...) add new crates to the cache (after --create)
+  --edit  edit the static cache Cargo.toml
+  --build rebuild the static cache
+  --doc  display
+  --edit-prelude edit the default prelude for snippets
 
   Dynamic compilation:
   -P, --crate-path show path of crate source in Cargo cache
