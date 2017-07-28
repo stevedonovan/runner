@@ -236,9 +236,20 @@ fn main() {
     if args.get_bool("crate-path") || args.get_bool("compile") {
         let (crate_path,crate_name) = if file.exists() {
             let filename = crate_utils::path_file_name(&file);
-            (file, filename)
+            if file.is_dir() { // assumed to be Cargo directory
+                if ! file.join("Cargo.toml").exists() {
+                    args.quit("not a Cargo project directory");
+                }
+                (file.join("src/lib.rs"), filename)
+            } else { // should be just a Rust source file
+                if file.extension().or_die("expecting extension") != "rs" {
+                    args.quit("expecting Rust source file");
+                }
+                let name = crate_utils::path_file_name(&file.with_extension(""));
+                (file, name)
+            }
         } else {
-            (crate_utils::cache_path(&first_arg), first_arg)
+            (crate_utils::cache_path(&first_arg).join("src/lib.rs"), first_arg)
         };
         if args.get_bool("crate-path") {
             println!("{}",crate_path.display());
@@ -251,7 +262,7 @@ fn main() {
                 .args(&["--crate-type","dylib"])
                 .arg("--out-dir").arg(&cache)
                 .arg("--crate-name").arg(&valid_crate_name)
-                .arg(crate_path.join("src/lib.rs"))
+                .arg(crate_path)
            .status().or_die("can't run rustc");
         }
         return;
