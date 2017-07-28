@@ -146,6 +146,11 @@ dynamic cache:
 ```
 $ runner -C json
 ```
+This `--compile` action takes three kinds of argument:
+
+  - a crate name that is already loaded and known to Cargo
+  - a Cargo directory
+  - a Rust source file - the crate name is the file name without extension.
 
 But anything more complicated is hard;  dynamic linking is not a priority for
 Rust tooling at the moment, and does not support it well enough without terrible
@@ -165,8 +170,15 @@ error[E0277]: the trait bound `{integer}: std::ops::Mul<{float}>` is not satisfi
 
 Likewise, you have to say `1.2f64.sin()` because `1.2` has ambiguous type.
 
-This strictness is very useful if you quickly want to find out how Rust
-will evaluate an expression!
+`--expression` is very useful if you quickly want to find out how Rust
+will evaluate an expression - we do a debug print for maximum flexibility.
+
+```
+$ runner -e 'PathBuf::from("bonzo.dog").extension()'
+Some("dog")
+```
+
+(This works because we have a `use std::path::PathBuf` in the runner prelude.)
 
 `-i` (or `--iterator`) evaluates iterator expressions and does a debug
 dump of the results:
@@ -184,7 +196,7 @@ Any extra command-line arguments are available for these commands, so:
 
 ```
 $ runner -i 'env::args().enumerate()' one 'two 2' 3
-(0, "temp/tmp")
+(0, "/home/steve/.cargo/.runner/bin/tmp")
 (1, "one")
 (2, "two 2")
 (3, "3")
@@ -197,8 +209,45 @@ standard input:
 $ echo "hello there" | runner -n 'line.to_uppercase()'
 "HELLO THERE"
 ```
+The `-x` flag (`--extern`) allows you to insert an `extern crate` into your
+snippet. This is particularly useful for these one-line shortcuts. For
+example, my `easy-shortcuts` crate has a couple of helper functions:
 
+```
+$ runner -xeasy_shortcuts -e 'easy_shortcuts::argn_err(1,"gimme an arg!")' 'an arg'
+"an arg"
+$ runner -xeasy_shortcuts -e 'easy_shortcuts::argn_err(1,"gimme an arg!")' 
+/home/steve/.cargo/.runner/bin/tmp error: no argument 1: gimme an arg!
+```
+This also applies to `--iterator`:
 
+```
+$ runner -xeasy_shortcuts -i 'easy_shortcuts::files(".")' 
+"json.rs"
+"print.rs"
+```
+By default, `runner -e` does a dynamic link, and there are known limitations.
+By also using `--static`, you can evaluate expressions against crates
+that can only be compiled as static libraries. So, assuming that we have
+`time` in the static cache (`runner --add time` will do that for you):
 
+```
+$ runner -s -xtime -e "time::now()"
+Tm { tm_sec: 34, tm_min: 4, tm_hour: 9, tm_mday: 28, tm_mon: 6, tm_year: 117,
+tm_wday: 5, tm_yday: 208, tm_isdst: 0, tm_utcoff: 7200, tm_nsec: 302755857 }
+```
 
+If you can get away with dynamic linking, then `runner` can make it 
+easy to test a module interactively. In this way you get much of the
+benefit of a fully interactive interpreter (a REPL):
+
+```
+$ cat universe.rs 
+pub fn answer() -> i32 {
+    42
+}
+$ runner -C universe.rs
+$ runner -xuniverse -e "universe::answer()"
+42
+```
 
