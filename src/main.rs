@@ -279,7 +279,7 @@ fn main() {
     let mut snippet = false;
     let mut code = if args.get_bool("expression") {
         // Evaluating an expression: just print it out.
-        format!("let res = {};\nprintln!(\"{{:?}}\",res);", first_arg)
+        format!("println!(\"{{:?}}\",{});", first_arg)
     } else
     if args.get_bool("iterator") {
         // The expression is anything that implements IntoIterator
