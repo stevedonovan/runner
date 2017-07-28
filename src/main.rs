@@ -127,13 +127,16 @@ fn get_cache(build_static: bool, optimize: bool) -> PathBuf {
     home
 }
 
-fn massage_snippet(code: String, prelude: String) -> String {
+fn massage_snippet(code: String, prelude: String, extern_crates: Vec<String>) -> String {
     fn indent_line(line: &str) -> String {
         format!("    {}\n",line)
     }
     let mut prefix = prelude;
     let mut body = String::new();
     {
+        for c in extern_crates {
+            body += &format!("extern crate {};",c);
+        }
         let mut lines = code.lines();
         for line in lines.by_ref() {
             let line = line.trim_left();
@@ -169,6 +172,7 @@ Compile and run small Rust snippets
   -e, --expression evaluate an expression
   -i, --iterator evaluate an iterator
   -n, --lines evaluate expression over stdin; 'line' is defined
+  -x, --extern... (string) add an extern crate to the snippet 
 
   Cache Management:
   --create (string...) initialize the static cache with crates
@@ -292,7 +296,7 @@ fn main() {
 
     // proper Rust programs are accepted (this is a bit rough)
     if code.find("fn main").is_none() {
-        code = massage_snippet(code,prelude);
+        code = massage_snippet(code,prelude, args.get_strings("extern"));
     }
 
     // we are going to put the expanded source and resulting exe in the runner bin dir
