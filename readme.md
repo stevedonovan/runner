@@ -113,6 +113,7 @@ Compile and run small Rust snippets
   -e, --expression evaluate an expression
   -i, --iterator evaluate an iterator
   -n, --lines evaluate expression over stdin; 'line' is defined
+  -x, --extern... (string) add an extern crate to the snippet
 
   Cache Management:
   --create (string...) initialize the static cache with crates
@@ -146,7 +147,9 @@ dynamic cache:
 ```
 $ runner -C json
 ```
-This `--compile` action takes three kinds of argument:
+And then you can run the `json.rs` example without `-s`.
+
+The `--compile` action takes three kinds of argument:
 
   - a crate name that is already loaded and known to Cargo
   - a Cargo directory
@@ -216,13 +219,13 @@ example, my `easy-shortcuts` crate has a couple of helper functions:
 ```
 $ runner -xeasy_shortcuts -e 'easy_shortcuts::argn_err(1,"gimme an arg!")' 'an arg'
 "an arg"
-$ runner -xeasy_shortcuts -e 'easy_shortcuts::argn_err(1,"gimme an arg!")' 
+$ runner -xeasy_shortcuts -e 'easy_shortcuts::argn_err(1,"gimme an arg!")'
 /home/steve/.cargo/.runner/bin/tmp error: no argument 1: gimme an arg!
 ```
 This also applies to `--iterator`:
 
 ```
-$ runner -xeasy_shortcuts -i 'easy_shortcuts::files(".")' 
+$ runner -xeasy_shortcuts -i 'easy_shortcuts::files(".")'
 "json.rs"
 "print.rs"
 ```
@@ -237,12 +240,12 @@ Tm { tm_sec: 34, tm_min: 4, tm_hour: 9, tm_mday: 28, tm_mon: 6, tm_year: 117,
 tm_wday: 5, tm_yday: 208, tm_isdst: 0, tm_utcoff: 7200, tm_nsec: 302755857 }
 ```
 
-If you can get away with dynamic linking, then `runner` can make it 
+If you can get away with dynamic linking, then `runner` can make it
 easy to test a module interactively. In this way you get much of the
 benefit of a fully interactive interpreter (a REPL):
 
 ```
-$ cat universe.rs 
+$ cat universe.rs
 pub fn answer() -> i32 {
     42
 }
