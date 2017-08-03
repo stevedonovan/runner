@@ -122,6 +122,7 @@ Compile and run small Rust snippets
   --build rebuild the static cache
   --doc  display
   --edit-prelude edit the default prelude for snippets
+  --alias (string...) crate aliases in form alias=crate_name (used with -x)  
 
   Dynamic compilation:
   -P, --crate-path show path of crate source in Cargo cache
@@ -228,6 +229,14 @@ This also applies to `--iterator`:
 $ runner -xeasy_shortcuts -i 'easy_shortcuts::files(".")'
 "json.rs"
 "print.rs"
+```
+
+With long crate names like this, it's useful to define _aliases_:
+
+```
+$ runner --alias es=easy_shortcuts
+$ runner -xes -e 'es::argn_err(1,"gimme an arg!")'
+...
 ```
 By default, `runner -e` does a dynamic link, and there are known limitations.
 By also using `--static`, you can evaluate expressions against crates

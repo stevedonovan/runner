@@ -8,6 +8,8 @@ use std::process;
 use std::env;
 use std::fs;
 use std::path::PathBuf;
+use std::collections::HashMap;
+use std::io::Write;
 
 mod crate_utils;
 mod platform;
@@ -127,6 +129,28 @@ fn get_cache(build_static: bool, optimize: bool) -> PathBuf {
     home
 }
 
+fn add_aliases(aliases: Vec<String>) {    
+    if aliases.len() == 0 { return; }
+    let alias_file = runner_directory().join("alias");
+    let mut f = if alias_file.is_file() {
+        fs::OpenOptions::new().append(true).open(&alias_file)
+    } else {
+        fs::File::create(&alias_file)
+    }.or_die("cannot open runner alias file");
+    
+    for crate_alias in aliases {
+        write!(f,"{}\n",crate_alias).or_die("cannot write to runner alias file");
+    }
+}
+
+fn get_aliases() -> HashMap<String,String> {
+    let alias_file = runner_directory().join("alias");
+    if ! alias_file.is_file() { return HashMap::new(); }
+	es::lines(es::open(&alias_file))
+      .filter_map(|s| s.split_at_delim('=').trim()) // split into (String,String)
+	  .to_map()
+}
+
 fn massage_snippet(code: String, prelude: String, extern_crates: Vec<String>) -> String {
     fn indent_line(line: &str) -> String {
         format!("    {}\n",line)
@@ -134,8 +158,15 @@ fn massage_snippet(code: String, prelude: String, extern_crates: Vec<String>) ->
     let mut prefix = prelude;
     let mut body = String::new();
     {
-        for c in extern_crates {
-            body += &format!("extern crate {};",c);
+        if extern_crates.len() > 0 {
+            let aliases = get_aliases();
+            for c in extern_crates {
+                prefix += &if let Some(aliased) = aliases.get(&c) {
+                    format!("extern crate {} as {};",aliased,c)
+                } else {                    
+                    format!("extern crate {};",c)
+                };
+            }
         }
         let mut lines = code.lines();
         for line in lines.by_ref() {
@@ -181,6 +212,7 @@ Compile and run small Rust snippets
   --build rebuild the static cache
   --doc  display
   --edit-prelude edit the default prelude for snippets
+  --alias (string...) crate aliases in form alias=crate_name (used with -x)
 
   Dynamic compilation:
   -P, --crate-path show path of crate source in Cargo cache
@@ -193,6 +225,12 @@ Compile and run small Rust snippets
 fn main() {
     let args = lapp::parse_args(USAGE);
     let prelude = get_prelude();
+    
+    let aliases = args.get_strings("alias");
+    if aliases.len() > 0 {
+        add_aliases(aliases);
+        return;
+    }
 
     if args.get_bool("edit-prelude") {
         let rdir = runner_directory().join("prelude");
