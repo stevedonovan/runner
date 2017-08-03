@@ -169,8 +169,15 @@ fn massage_snippet(code: String, prelude: String, extern_crates: Vec<String>) ->
             }
         }
         let mut lines = code.lines();
+        let mut first = true;
         for line in lines.by_ref() {
             let line = line.trim_left();
+            if first { // files may start with #! shebang...
+                if line.starts_with("#") {
+                    continue;
+                }
+                first = false;
+            }
             if line.starts_with("//") || line.starts_with("#[") ||
                 line.starts_with("extern ") || line.starts_with("use ") {
                 prefix += line;
@@ -334,11 +341,6 @@ fn main() {
             }}
             ", first_arg)
     } else { // otherwise, just a file
-        // for now, we insist it has the usual Rust extension...
-        let ext = file.extension().or_die("no file extension");
-        if ext != "rs" {
-            es::quit("file extension must be .rs");
-        }
         snippet = true;
         es::read_to_string(&file)
     };
@@ -352,6 +354,7 @@ fn main() {
     let mut out_file = runner_directory().join("bin");
     if snippet {
         out_file.push(&file);
+        out_file.set_extension("rs");
     } else {
         out_file.push("tmp.rs");
     }

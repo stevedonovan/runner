@@ -27,6 +27,18 @@ println!("Hello, World!")
 $ runner print.rs
 Hello, World!
 ```
+
+You can even - on Unix platforms - add a 'shebang' line to invoke runner:
+
+```
+$ cat hello
+#!/home/steve/.cargo/bin/runner
+println!("Hello, World!");
+
+$ ./hello
+Hello, World!
+```
+
 It adds the necessary boilerplate and creates a proper Rust program in `~/.cargo/.runner/bin`,
 prefixed with a prelude, which is initially:
 
