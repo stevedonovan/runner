@@ -8,8 +8,8 @@ However, it's not intended to make running little test programs straightforward 
 create a project with all the dependencies you wish to play with, and then edit `src/main.rs` and
 do `cargo run`. A useful tip is to create a `src/bin` directory containing your little programs
 and then use `cargo run --bin NAME` to run them. But there is a better way; if you have such
-a project (say called 'cache') then the following compiler invocation will compile and link
-a program against those dependencies:
+a project (say called 'cache') then the following invocation will compile and link
+a program against those dependencies (`rustc` is an unusually intelligent compiler)
 
 ```
 $ rustc -L /path/to/cache/target/debug/deps mytest.rs
@@ -32,14 +32,14 @@ You can even - on Unix platforms - add a 'shebang' line to invoke runner:
 
 ```
 $ cat hello
-#!/home/steve/.cargo/bin/runner
+#!/usr/bin/env runner
 println!("Hello, World!");
 
 $ ./hello
 Hello, World!
 ```
 
-It adds the necessary boilerplate and creates a proper Rust program in `~/.cargo/.runner/bin`,
+`runner` adds the necessary boilerplate and creates a proper Rust program in `~/.cargo/.runner/bin`,
 prefixed with a prelude, which is initially:
 
 ```rust
@@ -59,7 +59,8 @@ macro_rules! debug {
 }
 ```
 
-After first invocation of `runner`, this is found in `~/.cargo/.runner/prelude`.
+After first invocation of `runner`, this is found in `~/.cargo/.runner/prelude`;
+you can edit it later with `runner --edit-prelude`.
 
 `debug!` saves typing: `debug!(my_var)` is equivalent to `println!("my_var = {:?}",my_var)`.
 
@@ -111,8 +112,8 @@ And then build statically and run (any extra arguments are passed to the program
 $ runner -s json.rs
 {"code":200,"success":true,"payload":{"features":["awesome","easyAPI","lowLearningCurve"]}}
 ```
-You can use `?` instead of the ubiquitous and awful `unwrap`, since the boilerplate
-encloses code in a function that returns `Result<(),Box<Error>>` - compatible with
+You can use `?` in snippets instead of the ubiquitous and awful `unwrap`, since the boilerplate
+encloses code in a function that returns `Result<(),Box<Error>>` which is compatible with
 any error return.
 
 `runner` provides various utilities for managing the static cache:
@@ -162,7 +163,7 @@ $ runner -C json
 ```
 And then you can run the `json.rs` example without `-s`.
 
-The `--compile` action takes three kinds of argument:
+The `--compile` action takes three kinds of arguments:
 
   - a crate name that is already loaded and known to Cargo
   - a Cargo directory
@@ -243,7 +244,7 @@ $ runner -xeasy_shortcuts -i 'easy_shortcuts::files(".")'
 "print.rs"
 ```
 
-With long crate names like this, it's useful to define _aliases_:
+With long crate names like this, you can define _aliases_:
 
 ```
 $ runner --alias es=easy_shortcuts
