@@ -129,7 +129,7 @@ fn get_cache(build_static: bool, optimize: bool) -> PathBuf {
     home
 }
 
-fn add_aliases(aliases: Vec<String>) {    
+fn add_aliases(aliases: Vec<String>) {
     if aliases.len() == 0 { return; }
     let alias_file = runner_directory().join("alias");
     let mut f = if alias_file.is_file() {
@@ -137,7 +137,7 @@ fn add_aliases(aliases: Vec<String>) {
     } else {
         fs::File::create(&alias_file)
     }.or_die("cannot open runner alias file");
-    
+
     for crate_alias in aliases {
         write!(f,"{}\n",crate_alias).or_die("cannot write to runner alias file");
     }
@@ -163,7 +163,7 @@ fn massage_snippet(code: String, prelude: String, extern_crates: Vec<String>) ->
             for c in extern_crates {
                 prefix += &if let Some(aliased) = aliases.get(&c) {
                     format!("extern crate {} as {};",aliased,c)
-                } else {                    
+                } else {
                     format!("extern crate {};",c)
                 };
             }
@@ -173,7 +173,7 @@ fn massage_snippet(code: String, prelude: String, extern_crates: Vec<String>) ->
         for line in lines.by_ref() {
             let line = line.trim_left();
             if first { // files may start with #! shebang...
-                if line.starts_with("#") {
+                if line.starts_with("#!") {
                     continue;
                 }
                 first = false;
@@ -182,7 +182,8 @@ fn massage_snippet(code: String, prelude: String, extern_crates: Vec<String>) ->
                 line.starts_with("extern ") || line.starts_with("use ") {
                 prefix += line;
                 prefix.push('\n');
-            } else {
+            } else
+            if line.len() > 0 {
                 body += &indent_line(line);
                 break;
             }
@@ -210,7 +211,7 @@ Compile and run small Rust snippets
   -e, --expression evaluate an expression
   -i, --iterator evaluate an iterator
   -n, --lines evaluate expression over stdin; 'line' is defined
-  -x, --extern... (string) add an extern crate to the snippet 
+  -x, --extern... (string) add an extern crate to the snippet
 
   Cache Management:
   --create (string...) initialize the static cache with crates
@@ -232,7 +233,7 @@ Compile and run small Rust snippets
 fn main() {
     let args = lapp::parse_args(USAGE);
     let prelude = get_prelude();
-    
+
     let aliases = args.get_strings("alias");
     if aliases.len() > 0 {
         add_aliases(aliases);
