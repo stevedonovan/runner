@@ -178,7 +178,7 @@ fn massage_snippet(code: String, prelude: String, extern_crates: Vec<String>) ->
                 }
                 first = false;
             }
-            if line.starts_with("//") || line.starts_with("#[") ||
+            if line.starts_with("//") || line.starts_with("#[macro_use") ||
                 line.starts_with("extern ") || line.starts_with("use ") {
                 prefix += line;
                 prefix.push('\n');
