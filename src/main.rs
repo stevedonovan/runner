@@ -298,7 +298,7 @@ fn main() {
             (crate_utils::cache_path(&first_arg).join("src/lib.rs"), first_arg)
         };
         if args.get_bool("crate-path") {
-            println!("{}",crate_path.display());
+            println!("{}",crate_utils::cache_path(&crate_name).display());
         } else {
             let valid_crate_name = crate_name.replace('-',"_");
             let cache = get_cache(false, false);
