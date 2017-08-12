@@ -151,7 +151,7 @@ fn get_aliases() -> HashMap<String,String> {
 	  .to_map()
 }
 
-fn massage_snippet(code: String, prelude: String, extern_crates: Vec<String>) -> String {
+fn massage_snippet(code: String, prelude: String, extern_crates: Vec<String>, wild_crates: Vec<String>) -> String {
     fn indent_line(line: &str) -> String {
         format!("    {}\n",line)
     }
@@ -166,6 +166,9 @@ fn massage_snippet(code: String, prelude: String, extern_crates: Vec<String>) ->
                 } else {
                     format!("extern crate {};",c)
                 };
+            }
+            for c in wild_crates {
+                prefix += &format!("use {}::*;",c);
             }
         }
         let mut lines = code.lines();
@@ -212,19 +215,21 @@ Compile and run small Rust snippets
   -i, --iterator evaluate an iterator
   -n, --lines evaluate expression over stdin; 'line' is defined
   -x, --extern... (string) add an extern crate to the snippet
+  -X, --wild... (string) like -x but implies wildcard use
 
   Cache Management:
   --create (string...) initialize the static cache with crates
   --add  (string...) add new crates to the cache (after --create)
   --edit  edit the static cache Cargo.toml
   --build rebuild the static cache
-  --doc  display
+  --doc  display documentation
   --edit-prelude edit the default prelude for snippets
   --alias (string...) crate aliases in form alias=crate_name (used with -x)
 
   Dynamic compilation:
   -P, --crate-path show path of crate source in Cargo cache
   -C, --compile  compile crate dynamically (limited)
+  --cfg... (string) pass configuration variables to rustc
 
   <program> (string) Rust program, snippet or expression
   <args> (string...) arguments to pass to program
@@ -302,14 +307,17 @@ fn main() {
         } else {
             let valid_crate_name = crate_name.replace('-',"_");
             let cache = get_cache(false, false);
-            process::Command::new("rustc")
-                .args(&["-C","prefer-dynamic"]).args(&["-C","debuginfo=0"])
+            let mut builder = process::Command::new("rustc");
+                builder.args(&["-C","prefer-dynamic"]).args(&["-C","debuginfo=0"])
                 .arg("-L").arg(&cache)
                 .args(&["--crate-type","dylib"])
                 .arg("--out-dir").arg(&cache)
                 .arg("--crate-name").arg(&valid_crate_name)
-                .arg(crate_path)
-           .status().or_die("can't run rustc");
+                .arg(crate_path);
+           for c in args.get_strings("cfg") {
+                builder.arg("--cfg").arg(&c);
+           }
+           builder.status().or_die("can't run rustc");
         }
         return;
     }
@@ -348,7 +356,12 @@ fn main() {
 
     // proper Rust programs are accepted (this is a bit rough)
     if code.find("fn main").is_none() {
-        code = massage_snippet(code,prelude, args.get_strings("extern"));
+        let mut extern_crates = args.get_strings("extern");
+        let wild_crates = args.get_strings("wild");
+        if wild_crates.len() > 0 {
+            extern_crates.extend(wild_crates.iter().cloned());
+        }
+        code = massage_snippet(code,prelude, extern_crates, wild_crates);
     }
 
     // we are going to put the expanded source and resulting exe in the runner bin dir
