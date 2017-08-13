@@ -189,6 +189,7 @@ runner -C --cfg 'feature="default"' --cfg 'feature="use_std"' libc
 runner -C --libc memchr
 runner -C --libc thread-id
 runner -C --cfg 'feature="std"'  void
+runner -C utf8-ranges
 runner -C unreachable
 runner -C aho-corasick
 runner -C lazy_static
