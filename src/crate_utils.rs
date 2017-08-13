@@ -14,10 +14,14 @@ fn semver_i (s: &str) -> u64 {
     (((v[0] << 8) + v[1]) << 8) + v[2]
 }
 
+pub fn cargo_home() -> path::PathBuf {
+    env::var("CARGO_HOME") // set in cargo runs
+        .unwrap_or(env::var("HOME").or_die("no home!") + "/.cargo").into()
+}
+
 pub fn cache_path(crate_name: &str) -> path::PathBuf {
-    let home = env::var("CARGO_HOME") // set in cargo runs
-        .unwrap_or(env::var("HOME").or_die("no home!") + "/.cargo");
-    let crate_root = path::PathBuf::from(home + "/registry/src");
+    let home = cargo_home();
+    let crate_root = path::PathBuf::from(home.join("registry/src"));
     // actual crate source is in some fairly arbitrary subdirectory of this
     let mut crate_dir = crate_root.clone();
     crate_dir.push(es::files(&crate_root).next().or_die("no crate cache directory"));
