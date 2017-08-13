@@ -210,7 +210,7 @@ let re = Regex::new(r"^\d{4}-\d{2}-\d{2}$").unwrap();
 assert!(re.is_match("2014-01-01"));
 ```
 With a static build (`-s`) I get 0.90s on this machine, and 0.47s with dynamic linking.
-[macbook]
+On my souped-up office machine, it's 0.62s versus 0.32s.
 
 A useful trick - if you want to look at the `Cargo.toml` of an already downloaded crate
 to find out dependencies and features, then this command will open it for you:
