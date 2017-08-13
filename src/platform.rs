@@ -10,6 +10,12 @@ pub const EXE: &str = "exe";
 #[cfg(not(target_os = "windows"))]
 pub const EXE: &str = "";
 
+#[cfg(target_os = "macos")]
+pub const SO: &str = "dylib";
+
+#[cfg(not(target_os = "macos"))]
+pub const SO: &str = "so";
+
 
 pub fn open(p: &Path) {
     open::that(p).or_die("cannot open");

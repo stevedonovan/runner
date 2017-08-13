@@ -14,7 +14,7 @@ use std::io::Write;
 mod crate_utils;
 mod platform;
 
-use platform::{open,edit,EXE};
+use platform::{open,edit,EXE,SO};
 
 fn rustup_lib() -> String {
     es::shell("rustc --print sysroot") + "/lib"
@@ -318,7 +318,7 @@ fn main() {
                 builder.arg("--cfg").arg(&c);
            }
            if args.get_bool("libc") {
-                builder.arg("--extern").arg(&format!("libc={}/liblibc.so",cache.display()));
+                builder.arg("--extern").arg(&format!("libc={}/liblibc.{}",cache.display(),SO));
            }
            builder.status().or_die("can't run rustc");
         }
