@@ -41,8 +41,7 @@ macro_rules! debug {
 ";
 
 fn runner_directory() -> PathBuf {
-    let mut home = env::home_dir().or_die("no home!");
-    home.push(".cargo");
+    let mut home = crate_utils::cargo_home();
     home.push(".runner");
     home
 }
