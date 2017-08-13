@@ -230,6 +230,7 @@ Compile and run small Rust snippets
   -P, --crate-path show path of crate source in Cargo cache
   -C, --compile  compile crate dynamically (limited)
   --cfg... (string) pass configuration variables to rustc
+  --libc  link dynamically against libc (special case)
 
   <program> (string) Rust program, snippet or expression
   <args> (string...) arguments to pass to program
@@ -316,6 +317,9 @@ fn main() {
                 .arg(crate_path);
            for c in args.get_strings("cfg") {
                 builder.arg("--cfg").arg(&c);
+           }
+           if args.get_bool("libc") {
+                builder.arg("--extern").arg(&format!("libc={}/liblibc.so",cache.display()));
            }
            builder.status().or_die("can't run rustc");
         }
