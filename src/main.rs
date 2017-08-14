@@ -46,14 +46,12 @@ fn runner_directory() -> PathBuf {
     home
 }
 
-fn cargo(args: &[&str]) {
+fn cargo(args: &[&str]) -> bool {
     let res = process::Command::new("cargo")
         .args(args)
         .status()
         .or_die("can't run cargo");
-    if ! res.success() {
-        es::quit("cargo failed");
-    }
+    res.success()
 }
 
 const STATIC_CACHE: &str = "static-cache";
@@ -71,10 +69,10 @@ fn static_cache_dir_check(args: &lapp::Args) -> PathBuf {
     static_cache
 }
 
-fn build_static_cache() {
-    cargo(&["build"]);
-    cargo(&["build","--release"]);
-    cargo(&["doc"]);
+fn build_static_cache() -> bool {
+    cargo(&["build"]) &&
+    cargo(&["build","--release"]) &&
+    cargo(&["doc"])
 }
 
 fn create_static_cache(crates: &[String], create: bool) {
@@ -82,18 +80,25 @@ fn create_static_cache(crates: &[String], create: bool) {
     let mut home = runner_directory();
     env::set_current_dir(&home).or_die("cannot change to home directory");
     if create {
-        cargo(&["new","--bin",STATIC_CACHE]);
-    }
-    home.push(STATIC_CACHE);
-    env::set_current_dir(&home).or_die("could not create static cache");
-    {
-        let mut deps = fs::OpenOptions::new().append(true)
-            .open("Cargo.toml").or_die("could not append to cargo.toml");
-        for c in crates {
-            write!(deps,"{}=\"*\"\n",c).or_die("could not modify cargo.toml");
+        if ! cargo(&["new","--bin",STATIC_CACHE]) {
+            es::quit("cannot create static cache");
         }
     }
-    build_static_cache();
+    home.push(STATIC_CACHE);
+    env::set_current_dir(&home).or_die("could not change to static cache directory");
+    let tmpfile = env::temp_dir().join("Cargo.toml");
+    fs::copy("Cargo.toml",&tmpfile).or_die("cannot back up Cargo.toml");
+    {
+        let mut deps = fs::OpenOptions::new().append(true)
+            .open("Cargo.toml").or_die("could not append to Cargo.toml");
+        for c in crates {
+            write!(deps,"{}=\"*\"\n",c).or_die("could not modify Cargo.toml");
+        }
+    }
+    if ! build_static_cache() {
+        println!("Error occurred - restoring Cargo.toml");
+        fs::copy(&tmpfile,"Cargo.toml").or_die("cannot restore Cargo.toml");
+    }
 }
 
 // this is always called first and has the important role to ensure that
