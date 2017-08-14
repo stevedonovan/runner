@@ -38,5 +38,5 @@ pub fn cache_path(crate_name: &str) -> path::PathBuf {
     }
     // crate versions in ascending order by semver rules
     crates.sort_by(|a,b| a.1.cmp(&b.1));
-    crates.pop().or_die("no such crate").0
+    crates.pop().or_die(&format!("no such crate: {}",crate_name)).0
 }

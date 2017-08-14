@@ -289,7 +289,7 @@ fn main() {
             let filename = crate_utils::path_file_name(&file);
             if file.is_dir() { // assumed to be Cargo directory
                 if ! file.join("Cargo.toml").exists() {
-                    args.quit("not a Cargo project directory");
+                    args.quit(&format!("not a Cargo project directory: {}",file.display()));
                 }
                 (file.join("src/lib.rs"), filename)
             } else { // should be just a Rust source file
