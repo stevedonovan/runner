@@ -185,6 +185,9 @@ fn massage_snippet(code: String, prelude: String, extern_crates: Vec<String>, wi
                 }
                 first = false;
             }
+            // crate import, use should go at the top.
+            // Particularly need to force crate-level attributes to the top
+            // - currently only 'macro_use'.
             if line.starts_with("//") || line.starts_with("#[macro_use") ||
                 line.starts_with("extern ") || line.starts_with("use ") {
                 prefix += line;

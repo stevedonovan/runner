@@ -1,6 +1,6 @@
 [package]
 name = "runner"
-version = "0.2.1"
+version = "0.2.2"
 authors = ["steve donovan <steve.j.donovan@gmail.com>"]
 description = "utility for running Rust snippets"
 
