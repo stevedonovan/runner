@@ -325,8 +325,14 @@ fn main() {
            for c in args.get_strings("cfg") {
                 builder.arg("--cfg").arg(&c);
            }
-           if args.get_bool("libc") {
-                builder.arg("--extern").arg(&format!("libc={}/liblibc.{}",cache.display(),SO));
+           // implicit linking works fine, until it doesn't
+           let mut extern_crates = args.get_strings("extern");
+           if args.get_bool("libc") { // libc is such a special case
+                extern_crates.push("libc".into());
+           }
+           for c in  extern_crates {
+                let ext = format!("{}={}/lib{}.{}",c,cache.display(),c,SO);
+                builder.arg("--extern").arg(&ext);
            }
            builder.status().or_die("can't run rustc");
         }
@@ -365,43 +371,52 @@ fn main() {
         es::read_to_string(&file)
     };
 
+    // ALL executables go into the Runner bin directory...
+    let mut bin = runner_directory().join("bin");
+
     // proper Rust programs are accepted (this is a bit rough)
-    if code.find("fn main").is_none() {
+    let proper = code.find("fn main").is_some();
+    let (rust_file, program) = if ! proper {
+        // otherwise we must create a proper program from the snippet
+        // and write this as a file in the Runner bin directory...
         let mut extern_crates = args.get_strings("extern");
         let wild_crates = args.get_strings("wild");
         if wild_crates.len() > 0 {
             extern_crates.extend(wild_crates.iter().cloned());
         }
         code = massage_snippet(code,prelude, extern_crates, wild_crates);
-    }
-
-    // we are going to put the expanded source and resulting exe in the runner bin dir
-    let mut out_file = runner_directory().join("bin");
-    if snippet {
-        out_file.push(&file);
-        out_file.set_extension("rs");
+        if snippet {
+            bin.push(&file);
+            bin.set_extension("rs");
+        } else {
+            bin.push("tmp.rs");
+        }
+        es::write_all(&bin,&code);
+        let program = bin.with_extension(EXE);
+        (bin, program)
     } else {
-        out_file.push("tmp.rs");
-    }
-    let mut program = out_file.clone();
-    program.set_extension(EXE);
+        bin.push(&file);
+        let program = bin.with_extension(EXE);
+        (file, program)
+    };
 
-    es::write_all(&out_file,&code);
-
+    // We now have a proper Rust file to compile
     let mut builder = process::Command::new("rustc");
-    if ! build_static {
+    if ! build_static { // stripped-down dynamic link
         builder.args(&["-C","prefer-dynamic"]).args(&["-C","debuginfo=0"]);
-    } else {
+    } else { // static debug build
         builder.arg(if optimize {"-O"} else {"-g"});
     }
+    // implicitly linking against crates in the dynamic or static cache
     builder.arg("-L").arg(&cache);
     let status = builder.arg("-o").arg(&program)
-        .arg(&out_file)
+        .arg(rust_file)
         .status().or_die("can't run rustc");
     if ! status.success() {
         return;
     }
 
+    // Finally run the compiled program
     let mut builder = process::Command::new(&program);
     if ! build_static {
         builder.env("LD_LIBRARY_PATH",format!("{}:{}",rustup_lib(),cache.display()));
