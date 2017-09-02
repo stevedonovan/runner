@@ -14,7 +14,9 @@ use std::io::Write;
 mod crate_utils;
 mod platform;
 
-use platform::{open,edit,EXE,SO};
+use std::env::consts::{EXE_SUFFIX,DLL_SUFFIX,DLL_PREFIX};
+
+use platform::{open,edit};
 
 fn rustup_lib() -> String {
     es::shell("rustc --print sysroot") + "/lib"
@@ -331,7 +333,7 @@ fn main() {
                 extern_crates.push("libc".into());
            }
            for c in  extern_crates {
-                let ext = format!("{}={}/lib{}.{}",c,cache.display(),c,SO);
+                let ext = format!("{}={}/{}{}{}",c,cache.display(),DLL_PREFIX,c,DLL_SUFFIX);
                 builder.arg("--extern").arg(&ext);
            }
            builder.status().or_die("can't run rustc");
@@ -392,11 +394,11 @@ fn main() {
             bin.push("tmp.rs");
         }
         es::write_all(&bin,&code);
-        let program = bin.with_extension(EXE);
+        let program = bin.with_extension(EXE_SUFFIX);
         (bin, program)
     } else {
         bin.push(&file);
-        let program = bin.with_extension(EXE);
+        let program = bin.with_extension(EXE_SUFFIX);
         (file, program)
     };
 
