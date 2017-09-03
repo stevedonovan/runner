@@ -5,7 +5,14 @@ use std::env;
 use std::path;
 
 pub fn path_file_name(p: &path::Path) -> String {
-    p.file_name().unwrap().to_string_lossy().to_string()
+    if let Some(file_name) = p.file_name() {
+        file_name.to_string_lossy().to_string()
+    } else
+    if let Ok(full_path) = p.canonicalize() {
+        path_file_name(&full_path)
+    } else {
+        p.to_string_lossy().to_string()
+    }
 }
 
 // there's a Crate for This...
