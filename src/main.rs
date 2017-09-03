@@ -34,7 +34,7 @@ Compile and run small Rust snippets
   --add  (string...) add new crates to the cache (after --create)
   --edit  edit the static cache Cargo.toml
   --build rebuild the static cache
-  --doc  display documentation
+  --doc  display documentation (any argument will be specific crate name)
   --edit-prelude edit the default prelude for snippets
   --alias (string...) crate aliases in form alias=crate_name (used with -x)
 
@@ -43,15 +43,13 @@ Compile and run small Rust snippets
   -C, --compile  compile crate dynamically (limited)
   --cfg... (string) pass configuration variables to rustc
   --libc  link dynamically against libc (special case)
+  (--extern is used to explicitly link in a crate by name)
 
   <program> (string) Rust program, snippet or expression
   <args> (string...) arguments to pass to program
 ";
 
 
-fn rustup_lib() -> String {
-    es::shell("rustc --print sysroot") + "/lib"
-}
 
 // this will be initially written to ~/.cargo/.runner/prelude and
 // can then be edited.
@@ -284,7 +282,12 @@ fn main() {
             build_static_cache();
         } else
         if args.get_bool("doc") {
-            let docs = static_cache.join("target/doc/static_cache/index.html");
+            let the_crate = if let Ok(file) = args.get_string_result("program") {
+                file
+            } else {
+                "static_cache".to_string()
+            };
+            let docs = static_cache.join(&format!("target/doc/{}/index.html",the_crate));
             open(&docs);
         } else {
             let toml = static_cache.join("Cargo.toml");
@@ -429,7 +432,7 @@ fn main() {
     // Finally run the compiled program
     let mut builder = process::Command::new(&program);
     if ! build_static {
-        builder.env("LD_LIBRARY_PATH",format!("{}:{}",rustup_lib(),cache.display()));
+        builder.env("LD_LIBRARY_PATH",format!("{}:{}",crate_utils::rustup_lib(),cache.display()));
     }
     builder.args(&program_args)
         .status()

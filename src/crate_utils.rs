@@ -4,6 +4,10 @@ use es::traits::*;
 use std::env;
 use std::path;
 
+pub fn rustup_lib() -> String {
+    es::shell("rustc --print sysroot") + "/lib"
+}
+
 pub fn path_file_name(p: &path::Path) -> String {
     if let Some(file_name) = p.file_name() {
         file_name.to_string_lossy().to_string()
