@@ -18,6 +18,37 @@ use std::env::consts::{EXE_SUFFIX,DLL_SUFFIX,DLL_PREFIX};
 
 use platform::{open,edit};
 
+const USAGE: &str = "
+Compile and run small Rust snippets
+  -s, --static build statically (default is dynamic)
+  -O, --optimize optimized static build
+  -e, --expression evaluate an expression
+  -i, --iterator evaluate an iterator
+  -n, --lines evaluate expression over stdin; 'line' is defined
+  -x, --extern... (string) add an extern crate to the snippet
+  -X, --wild... (string) like -x but implies wildcard use
+  -p, --prepend (default '') prepend contents of this file to body
+
+  Cache Management:
+  --create (string...) initialize the static cache with crates
+  --add  (string...) add new crates to the cache (after --create)
+  --edit  edit the static cache Cargo.toml
+  --build rebuild the static cache
+  --doc  display documentation
+  --edit-prelude edit the default prelude for snippets
+  --alias (string...) crate aliases in form alias=crate_name (used with -x)
+
+  Dynamic compilation:
+  -P, --crate-path show path of crate source in Cargo cache
+  -C, --compile  compile crate dynamically (limited)
+  --cfg... (string) pass configuration variables to rustc
+  --libc  link dynamically against libc (special case)
+
+  <program> (string) Rust program, snippet or expression
+  <args> (string...) arguments to pass to program
+";
+
+
 fn rustup_lib() -> String {
     es::shell("rustc --print sysroot") + "/lib"
 }
@@ -26,14 +57,16 @@ fn rustup_lib() -> String {
 // can then be edited.
 const PRELUDE: &'static str = "
 #![allow(unused_imports)]
+#![allow(unused_variables)]
 #![allow(dead_code)]
+#![allow(unused_macros)]
 use std::fs;
 use std::fs::File;
 use std::io;
 use std::io::prelude::*;
 use std::env;
 use std::path::{PathBuf,Path};
-#[allow(unused_macros)]
+
 macro_rules! debug {
     ($x:expr) => {
         println!(\"{} = {:?}\",stringify!($x),$x);
@@ -43,9 +76,7 @@ macro_rules! debug {
 ";
 
 fn runner_directory() -> PathBuf {
-    let mut home = crate_utils::cargo_home();
-    home.push(".runner");
-    home
+    crate_utils::cargo_home().join(".runner")
 }
 
 fn cargo(args: &[&str]) -> bool {
@@ -157,12 +188,13 @@ fn get_aliases() -> HashMap<String,String> {
 	  .to_map()
 }
 
-fn massage_snippet(code: String, prelude: String, extern_crates: Vec<String>, wild_crates: Vec<String>) -> String {
+fn massage_snippet(code: String, prelude: String, extern_crates: Vec<String>, wild_crates: Vec<String>, body_prelude: String) -> String {
     fn indent_line(line: &str) -> String {
         format!("    {}\n",line)
     }
     let mut prefix = prelude;
     let mut body = String::new();
+    body += &body_prelude;
     {
         if extern_crates.len() > 0 {
             let aliases = get_aliases();
@@ -212,38 +244,9 @@ fn run() -> Result<(),Box<Error>> {{
 fn main() {{
     run().unwrap();
 }}
-        ",prefix,body)
+",prefix,body)
 
 }
-
-const USAGE: &str = "
-Compile and run small Rust snippets
-  -s, --static build statically (default is dynamic)
-  -O, --optimize optimized static build
-  -e, --expression evaluate an expression
-  -i, --iterator evaluate an iterator
-  -n, --lines evaluate expression over stdin; 'line' is defined
-  -x, --extern... (string) add an extern crate to the snippet
-  -X, --wild... (string) like -x but implies wildcard use
-
-  Cache Management:
-  --create (string...) initialize the static cache with crates
-  --add  (string...) add new crates to the cache (after --create)
-  --edit  edit the static cache Cargo.toml
-  --build rebuild the static cache
-  --doc  display documentation
-  --edit-prelude edit the default prelude for snippets
-  --alias (string...) crate aliases in form alias=crate_name (used with -x)
-
-  Dynamic compilation:
-  -P, --crate-path show path of crate source in Cargo cache
-  -C, --compile  compile crate dynamically (limited)
-  --cfg... (string) pass configuration variables to rustc
-  --libc  link dynamically against libc (special case)
-
-  <program> (string) Rust program, snippet or expression
-  <args> (string...) arguments to pass to program
-";
 
 fn main() {
     let args = lapp::parse_args(USAGE);
@@ -315,6 +318,7 @@ fn main() {
         if args.get_bool("crate-path") {
             println!("{}",crate_utils::cache_path(&crate_name).display());
         } else {
+            println!("building crate '{}' at {}",crate_name, crate_path.display());
             let valid_crate_name = crate_name.replace('-',"_");
             let cache = get_cache(false, false);
             let mut builder = process::Command::new("rustc");
@@ -386,7 +390,11 @@ fn main() {
         if wild_crates.len() > 0 {
             extern_crates.extend(wild_crates.iter().cloned());
         }
-        code = massage_snippet(code,prelude, extern_crates, wild_crates);
+        let mut extra = args.get_string("prepend");
+        if extra != "" {
+            extra = es::read_to_string(&extra);
+        }
+        code = massage_snippet(code, prelude, extern_crates, wild_crates, extra);
         if snippet {
             bin.push(&file);
             bin.set_extension("rs");
