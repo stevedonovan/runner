@@ -282,11 +282,13 @@ fn main() {
             build_static_cache();
         } else
         if args.get_bool("doc") {
-            let the_crate = if let Ok(file) = args.get_string_result("program") {
-                file
-            } else {
-                "static_cache".to_string()
-            };
+            let the_crate = crate_utils::proper_crate_name(
+                &if let Ok(file) = args.get_string_result("program") {
+                    file
+                } else {
+                    "static_cache".to_string()
+                }
+            );
             let docs = static_cache.join(&format!("target/doc/{}/index.html",the_crate));
             open(&docs);
         } else {
@@ -322,7 +324,7 @@ fn main() {
             println!("{}",crate_utils::cache_path(&crate_name).display());
         } else {
             println!("building crate '{}' at {}",crate_name, crate_path.display());
-            let valid_crate_name = crate_name.replace('-',"_");
+            let valid_crate_name = crate_utils::proper_crate_name(&crate_name);
             let cache = get_cache(false, false);
             let mut builder = process::Command::new("rustc");
                 builder.args(&["-C","prefer-dynamic"]).args(&["-C","debuginfo=0"])

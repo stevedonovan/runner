@@ -7,6 +7,9 @@ use std::path;
 pub fn rustup_lib() -> String {
     es::shell("rustc --print sysroot") + "/lib"
 }
+pub fn proper_crate_name(crate_name: &str) -> String {
+    crate_name.replace('-',"_")
+}
 
 pub fn path_file_name(p: &path::Path) -> String {
     if let Some(file_name) = p.file_name() {
