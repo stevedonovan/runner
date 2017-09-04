@@ -240,7 +240,7 @@ fn run() -> Result<(),Box<Error>> {{
 {}    Ok(())
 }}
 fn main() {{
-    run().unwrap();
+    if let Err(e) = run() {{println!(\"error: {{:?}}\",e);}}
 }}
 ",prefix,body)
 
