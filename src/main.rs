@@ -7,12 +7,13 @@ use es::traits::*;
 use std::process;
 use std::env;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path,PathBuf};
 use std::collections::HashMap;
-use std::io::Write;
+use std::io::{Write,Read};
 
 mod crate_utils;
 mod platform;
+mod strutil;
 
 use std::env::consts::{EXE_SUFFIX,DLL_SUFFIX,DLL_PREFIX};
 
@@ -49,8 +50,6 @@ Compile and run small Rust snippets
   <args> (string...) arguments to pass to program
 ";
 
-
-
 // this will be initially written to ~/.cargo/.runner/prelude and
 // can then be edited.
 const PRELUDE: &'static str = "
@@ -72,6 +71,193 @@ macro_rules! debug {
 }
 
 ";
+
+fn main() {
+    let args = lapp::parse_args(USAGE);
+    let prelude = get_prelude();
+
+    let aliases = args.get_strings("alias");
+    if aliases.len() > 0 {
+        add_aliases(aliases);
+        return;
+    }
+
+    if args.get_bool("edit-prelude") {
+        let rdir = runner_directory().join("prelude");
+        edit(&rdir);
+        return;
+    }
+
+    // Static Cache Management
+    let crates = args.get_strings("create");
+    if crates.len() > 0 {
+        create_static_cache(&crates,true);
+        return;
+    }
+    let crates = args.get_strings("add");
+    if crates.len() > 0 {
+        static_cache_dir_check(&args);
+        create_static_cache(&crates,false);
+        return;
+    }
+
+    if args.get_bool("edit") || args.get_bool("build") || args.get_bool("doc") {
+        let static_cache = static_cache_dir_check(&args);
+        if args.get_bool("build") {
+            env::set_current_dir(&static_cache).or_die("static cache wasn't a directory?");
+            build_static_cache();
+        } else
+        if args.get_bool("doc") {
+            let the_crate = crate_utils::proper_crate_name(
+                &if let Ok(file) = args.get_string_result("program") {
+                    file
+                } else {
+                    "static_cache".to_string()
+                }
+            );
+            let docs = static_cache.join(&format!("target/doc/{}/index.html",the_crate));
+            open(&docs);
+        } else {
+            let toml = static_cache.join("Cargo.toml");
+            edit(&toml);
+        }
+        return;
+    }
+
+    let first_arg = args.get_string("program");
+    let file = PathBuf::from(&first_arg);
+
+    // Dynamically linking crates (experimental!)
+    if args.get_bool("crate-path") || args.get_bool("compile") {
+        let (crate_path,crate_name) = match crate_utils::crate_path(&file,&first_arg) {
+            Ok(t) => t,
+            Err(s) => args.quit(&s)
+        };
+        if args.get_bool("crate-path") {
+            println!("{}",crate_utils::cache_path(&crate_name).display());
+        } else {
+            println!("building crate '{}' at {}",crate_name, crate_path.display());
+            // implicit linking works fine, until it doesn't
+            let mut extern_crates = args.get_strings("extern");
+            // libc is such a special case
+            if args.get_bool("libc") { 
+                extern_crates.push("libc".into());
+            }            
+            dynamic_compile(&crate_name,&crate_path,args.get_strings("cfg"),extern_crates);
+        }
+        return;
+    }
+
+    let build_static = args.get_bool("static");
+    let optimize = args.get_bool("optimize");
+
+    // we'll pass rest of arguments to program
+    let program_args = args.get_strings("args");    
+
+    let mut expression = true;
+    let mut code = if args.get_bool("expression") {
+        // Evaluating an expression: just print it out.
+        format!("println!(\"{{:?}}\",{});", first_arg)
+    } else
+    if args.get_bool("iterator") {
+        // The expression is anything that implements IntoIterator
+        format!("let iter = {};\n for val in iter {{ println!(\"{{:?}}\",val);}}", first_arg)
+    } else
+    if args.get_bool("lines") {
+        // The variable 'line' is available to an expression, evaluated for each line in stdin
+        format!("
+            let stdin = io::stdin();
+            for line in stdin.lock().lines() {{
+                let line = line?;
+                let val = {};
+                println!(\"{{:?}}\",val);
+            }}
+            ", first_arg)
+    } else { // otherwise, just a file
+        expression = false;
+        es::read_to_string(&file)
+    };
+    
+    // expressions may contain environment references like $PATH
+    if expression {
+        code = strutil::substitute(&code,"$",
+            |c| c.is_uppercase() || c == '_',
+            |s| env::var(s).map(|s| format!("{:?}",s))
+        ).or_die("$VAR did not exist");
+    }    
+
+    // ALL executables go into the Runner bin directory...
+    let mut bin = runner_directory().join("bin");
+    let mut do_build = true;
+
+    // proper Rust programs are accepted (this is a bit rough)
+    let proper = code.find("fn main").is_some();
+    let (rust_file, program) = if ! proper {
+        // otherwise we must create a proper program from the snippet
+        // and write this as a file in the Runner bin directory...
+        let mut extern_crates = args.get_strings("extern");
+        let wild_crates = args.get_strings("wild");
+        if wild_crates.len() > 0 {
+            extern_crates.extend(wild_crates.iter().cloned());
+        }
+        let mut extra = args.get_string("prepend");
+        if extra != "" {
+            extra = es::read_to_string(&extra);
+        }
+        code = massage_snippet(code, prelude, extern_crates, wild_crates, extra);
+        if ! expression {
+            bin.push(&file);
+            bin.set_extension("rs");
+        } else {
+            bin.push("tmp.rs");
+        }
+        // for non 'proper' programs (snippets and examples)
+        // only build if last cached source is different from
+        // this massaged source
+        if let Ok(mut f) = fs::File::open(&bin) {
+            let mut last_code = String::new();
+            f.read_to_string(&mut last_code).or_die("can't read last expression");
+            do_build = last_code != code
+        }        
+        es::write_all(&bin,&code);
+        let program = bin.with_extension(EXE_SUFFIX);
+        (bin, program)
+    } else {
+        bin.push(&file);
+        let program = bin.with_extension(EXE_SUFFIX);
+        (file, program)
+    };
+    
+    let cache = get_cache(build_static, optimize);
+    if do_build {        
+        // We now have a proper Rust file to compile
+        let mut builder = process::Command::new("rustc");
+        if ! build_static { // stripped-down dynamic link
+            builder.args(&["-C","prefer-dynamic"]).args(&["-C","debuginfo=0"]);
+        } else { // static debug build
+            builder.arg(if optimize {"-O"} else {"-g"});
+        }
+        // implicitly linking against crates in the dynamic or static cache
+        builder.arg("-L").arg(&cache);
+        let status = builder.arg("-o").arg(&program)
+            .arg(rust_file)
+            .status().or_die("can't run rustc");
+        if ! status.success() {
+            return;
+        }
+    }
+
+    // Finally run the compiled program
+    let mut builder = process::Command::new(&program);
+    if ! build_static {
+        builder.env("LD_LIBRARY_PATH",format!("{}:{}",crate_utils::rustup_lib(),cache.display()));
+    }
+    builder.args(&program_args)
+        .status()
+        .or_die(&format!("can't run program {:?}",program));
+
+}
+
 
 fn runner_directory() -> PathBuf {
     crate_utils::cargo_home().join(".runner")
@@ -186,6 +372,26 @@ fn get_aliases() -> HashMap<String,String> {
 	  .to_map()
 }
 
+fn dynamic_compile(crate_name: &str, crate_path: &Path, cfg: Vec<String>, extern_crates: Vec<String>) {
+    let valid_crate_name = crate_utils::proper_crate_name(crate_name);
+    let cache = get_cache(false, false);
+    let mut builder = process::Command::new("rustc");
+        builder.args(&["-C","prefer-dynamic"]).args(&["-C","debuginfo=0"])
+        .arg("-L").arg(&cache)
+        .args(&["--crate-type","dylib"])
+        .arg("--out-dir").arg(&cache)
+        .arg("--crate-name").arg(&valid_crate_name)
+        .arg(crate_path);
+   for c in cfg {
+        builder.arg("--cfg").arg(&c);
+   }
+   for c in extern_crates {
+        let ext = format!("{}={}/{}{}{}",c,cache.display(),DLL_PREFIX,c,DLL_SUFFIX);
+        builder.arg("--extern").arg(&ext);
+   }
+   builder.status().or_die("can't run rustc");
+}
+
 fn massage_snippet(code: String, prelude: String, extern_crates: Vec<String>, wild_crates: Vec<String>, body_prelude: String) -> String {
     fn indent_line(line: &str) -> String {
         format!("    {}\n",line)
@@ -245,201 +451,4 @@ fn main() {{
 ",prefix,body)
 
 }
-
-fn main() {
-    let args = lapp::parse_args(USAGE);
-    let prelude = get_prelude();
-
-    let aliases = args.get_strings("alias");
-    if aliases.len() > 0 {
-        add_aliases(aliases);
-        return;
-    }
-
-    if args.get_bool("edit-prelude") {
-        let rdir = runner_directory().join("prelude");
-        edit(&rdir);
-        return;
-    }
-
-    // Static Cache Management
-    let crates = args.get_strings("create");
-    if crates.len() > 0 {
-        create_static_cache(&crates,true);
-        return;
-    }
-    let crates = args.get_strings("add");
-    if crates.len() > 0 {
-        static_cache_dir_check(&args);
-        create_static_cache(&crates,false);
-        return;
-    }
-
-    if args.get_bool("edit") || args.get_bool("build") || args.get_bool("doc") {
-        let static_cache = static_cache_dir_check(&args);
-        if args.get_bool("build") {
-            env::set_current_dir(&static_cache).or_die("static cache wasn't a directory?");
-            build_static_cache();
-        } else
-        if args.get_bool("doc") {
-            let the_crate = crate_utils::proper_crate_name(
-                &if let Ok(file) = args.get_string_result("program") {
-                    file
-                } else {
-                    "static_cache".to_string()
-                }
-            );
-            let docs = static_cache.join(&format!("target/doc/{}/index.html",the_crate));
-            open(&docs);
-        } else {
-            let toml = static_cache.join("Cargo.toml");
-            edit(&toml);
-        }
-        return;
-    }
-
-    let first_arg = args.get_string("program");
-    let file = PathBuf::from(&first_arg);
-
-    // Dynamically linking crates (experimental!)
-    if args.get_bool("crate-path") || args.get_bool("compile") {
-        let (crate_path,crate_name) = if file.exists() {
-            let filename = crate_utils::path_file_name(&file);
-            if file.is_dir() { // assumed to be Cargo directory
-                if ! file.join("Cargo.toml").exists() {
-                    args.quit(&format!("not a Cargo project directory: {}",file.display()));
-                }
-                (file.join("src/lib.rs"), filename)
-            } else { // should be just a Rust source file
-                if file.extension().or_die("expecting extension") != "rs" {
-                    args.quit("expecting Rust source file");
-                }
-                let name = crate_utils::path_file_name(&file.with_extension(""));
-                (file, name)
-            }
-        } else {
-            (crate_utils::cache_path(&first_arg).join("src/lib.rs"), first_arg)
-        };
-        if args.get_bool("crate-path") {
-            println!("{}",crate_utils::cache_path(&crate_name).display());
-        } else {
-            println!("building crate '{}' at {}",crate_name, crate_path.display());
-            let valid_crate_name = crate_utils::proper_crate_name(&crate_name);
-            let cache = get_cache(false, false);
-            let mut builder = process::Command::new("rustc");
-                builder.args(&["-C","prefer-dynamic"]).args(&["-C","debuginfo=0"])
-                .arg("-L").arg(&cache)
-                .args(&["--crate-type","dylib"])
-                .arg("--out-dir").arg(&cache)
-                .arg("--crate-name").arg(&valid_crate_name)
-                .arg(crate_path);
-           for c in args.get_strings("cfg") {
-                builder.arg("--cfg").arg(&c);
-           }
-           // implicit linking works fine, until it doesn't
-           let mut extern_crates = args.get_strings("extern");
-           if args.get_bool("libc") { // libc is such a special case
-                extern_crates.push("libc".into());
-           }
-           for c in  extern_crates {
-                let ext = format!("{}={}/{}{}{}",c,cache.display(),DLL_PREFIX,c,DLL_SUFFIX);
-                builder.arg("--extern").arg(&ext);
-           }
-           builder.status().or_die("can't run rustc");
-        }
-        return;
-    }
-
-    let build_static = args.get_bool("static");
-    let optimize = args.get_bool("optimize");
-
-    // we'll pass rest of arguments to program
-    let program_args = args.get_strings("args");
-
-    let cache = get_cache(build_static, optimize);
-
-    let mut snippet = false;
-    let mut code = if args.get_bool("expression") {
-        // Evaluating an expression: just print it out.
-        format!("println!(\"{{:?}}\",{});", first_arg)
-    } else
-    if args.get_bool("iterator") {
-        // The expression is anything that implements IntoIterator
-        format!("let iter = {};\n for val in iter {{ println!(\"{{:?}}\",val);}}", first_arg)
-    } else
-    if args.get_bool("lines") {
-        // The variable 'line' is available to an expression, evaluated for each line in stdin
-        format!("
-            let stdin = io::stdin();
-            for line in stdin.lock().lines() {{
-                let line = line?;
-                let val = {};
-                println!(\"{{:?}}\",val);
-            }}
-            ", first_arg)
-    } else { // otherwise, just a file
-        snippet = true;
-        es::read_to_string(&file)
-    };
-
-    // ALL executables go into the Runner bin directory...
-    let mut bin = runner_directory().join("bin");
-
-    // proper Rust programs are accepted (this is a bit rough)
-    let proper = code.find("fn main").is_some();
-    let (rust_file, program) = if ! proper {
-        // otherwise we must create a proper program from the snippet
-        // and write this as a file in the Runner bin directory...
-        let mut extern_crates = args.get_strings("extern");
-        let wild_crates = args.get_strings("wild");
-        if wild_crates.len() > 0 {
-            extern_crates.extend(wild_crates.iter().cloned());
-        }
-        let mut extra = args.get_string("prepend");
-        if extra != "" {
-            extra = es::read_to_string(&extra);
-        }
-        code = massage_snippet(code, prelude, extern_crates, wild_crates, extra);
-        if snippet {
-            bin.push(&file);
-            bin.set_extension("rs");
-        } else {
-            bin.push("tmp.rs");
-        }
-        es::write_all(&bin,&code);
-        let program = bin.with_extension(EXE_SUFFIX);
-        (bin, program)
-    } else {
-        bin.push(&file);
-        let program = bin.with_extension(EXE_SUFFIX);
-        (file, program)
-    };
-
-    // We now have a proper Rust file to compile
-    let mut builder = process::Command::new("rustc");
-    if ! build_static { // stripped-down dynamic link
-        builder.args(&["-C","prefer-dynamic"]).args(&["-C","debuginfo=0"]);
-    } else { // static debug build
-        builder.arg(if optimize {"-O"} else {"-g"});
-    }
-    // implicitly linking against crates in the dynamic or static cache
-    builder.arg("-L").arg(&cache);
-    let status = builder.arg("-o").arg(&program)
-        .arg(rust_file)
-        .status().or_die("can't run rustc");
-    if ! status.success() {
-        return;
-    }
-
-    // Finally run the compiled program
-    let mut builder = process::Command::new(&program);
-    if ! build_static {
-        builder.env("LD_LIBRARY_PATH",format!("{}:{}",crate_utils::rustup_lib(),cache.display()));
-    }
-    builder.args(&program_args)
-        .status()
-        .or_die(&format!("can't run program {:?}",program));
-
-}
-
 
