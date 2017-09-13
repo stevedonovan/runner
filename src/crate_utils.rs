@@ -54,3 +54,22 @@ pub fn cache_path(crate_name: &str) -> path::PathBuf {
     crates.sort_by(|a,b| a.1.cmp(&b.1));
     crates.pop().or_die(&format!("no such crate: {}",crate_name)).0
 }
+pub fn crate_path(file: &path::Path, first_arg: &str) -> Result<(path::PathBuf,String),String> {
+    if file.exists() {
+        let filename = path_file_name(file);
+        if file.is_dir() { // assumed to be Cargo directory
+            if ! file.join("Cargo.toml").exists() {
+                return Err(format!("not a Cargo project directory: {}",file.display()));
+            }
+            Ok((file.join("src/lib.rs"), filename))
+        } else { // should be just a Rust source file
+            if file.extension().or_die("expecting extension") != "rs" {
+                return Err("expecting Rust source file".into());
+            }
+            let name = path_file_name(&file.with_extension(""));
+            Ok((file.to_path_buf(), name))
+        }
+    } else {
+        Ok((cache_path(first_arg).join("src/lib.rs"), first_arg.to_string()))
+    }        
+}
