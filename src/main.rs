@@ -9,7 +9,7 @@ use std::env;
 use std::fs;
 use std::path::{Path,PathBuf};
 use std::collections::HashMap;
-use std::io::{Write,Read};
+use std::io::Write;
 
 mod crate_utils;
 mod platform;
@@ -69,7 +69,6 @@ macro_rules! debug {
         println!(\"{} = {:?}\",stringify!($x),$x);
     }
 }
-
 ";
 
 fn main() {
@@ -181,14 +180,20 @@ fn main() {
     // expressions may contain environment references like $PATH
     if expression {
         code = strutil::substitute(&code,"$",
-            |c| c.is_uppercase() || c == '_',
-            |s| env::var(s).map(|s| format!("{:?}",s))
-        ).or_die("$VAR did not exist");
+            |c| c.is_alphanumeric() || c == '_',
+            |s| {
+                let text = if let Ok(num) = s.parse::<usize>() {
+                    program_args.get(num-1).or_die(&format!("arg {} not found",num)).clone()
+                } else {
+                    env::var(s).or_die("$VAR not found")
+                };
+                format!("{:?}",text)
+            }        
+        );
     }    
 
     // ALL executables go into the Runner bin directory...
     let mut bin = runner_directory().join("bin");
-    let mut do_build = true;
 
     // proper Rust programs are accepted (this is a bit rough)
     let proper = code.find("fn main").is_some();
@@ -211,14 +216,6 @@ fn main() {
         } else {
             bin.push("tmp.rs");
         }
-        // for non 'proper' programs (snippets and examples)
-        // only build if last cached source is different from
-        // this massaged source
-        if let Ok(mut f) = fs::File::open(&bin) {
-            let mut last_code = String::new();
-            f.read_to_string(&mut last_code).or_die("can't read last expression");
-            do_build = last_code != code
-        }        
         es::write_all(&bin,&code);
         let program = bin.with_extension(EXE_SUFFIX);
         (bin, program)
@@ -229,22 +226,20 @@ fn main() {
     };
     
     let cache = get_cache(build_static, optimize);
-    if do_build {        
-        // We now have a proper Rust file to compile
-        let mut builder = process::Command::new("rustc");
-        if ! build_static { // stripped-down dynamic link
-            builder.args(&["-C","prefer-dynamic"]).args(&["-C","debuginfo=0"]);
-        } else { // static debug build
-            builder.arg(if optimize {"-O"} else {"-g"});
-        }
-        // implicitly linking against crates in the dynamic or static cache
-        builder.arg("-L").arg(&cache);
-        let status = builder.arg("-o").arg(&program)
-            .arg(rust_file)
-            .status().or_die("can't run rustc");
-        if ! status.success() {
-            return;
-        }
+    // We now have a proper Rust file to compile
+    let mut builder = process::Command::new("rustc");
+    if ! build_static { // stripped-down dynamic link
+        builder.args(&["-C","prefer-dynamic"]).args(&["-C","debuginfo=0"]);
+    } else { // static debug build
+        builder.arg(if optimize {"-O"} else {"-g"});
+    }
+    // implicitly linking against crates in the dynamic or static cache
+    builder.arg("-L").arg(&cache);
+    let status = builder.arg("-o").arg(&program)
+        .arg(rust_file)
+        .status().or_die("can't run rustc");
+    if ! status.success() {
+        return;
     }
 
     // Finally run the compiled program
@@ -257,7 +252,6 @@ fn main() {
         .or_die(&format!("can't run program {:?}",program));
 
 }
-
 
 fn runner_directory() -> PathBuf {
     crate_utils::cargo_home().join(".runner")
@@ -446,7 +440,9 @@ fn run() -> Result<(),Box<Error>> {{
 {}    Ok(())
 }}
 fn main() {{
-    if let Err(e) = run() {{println!(\"error: {{:?}}\",e);}}
+    if let Err(e) = run() {{
+        println!(\"error: {{:?}}\",e);
+    }}
 }}
 ",prefix,body)
 
