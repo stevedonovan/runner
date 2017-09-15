@@ -43,6 +43,7 @@ Compile and run small Rust snippets
   -P, --crate-path show path of crate source in Cargo cache
   -C, --compile  compile crate dynamically (limited)
   --cfg... (string) pass configuration variables to rustc
+  --features (string...) enable features in compilation
   --libc  link dynamically against libc (special case)
   (--extern is used to explicitly link in a crate by name)
 
@@ -141,8 +142,12 @@ fn main() {
             // libc is such a special case
             if args.get_bool("libc") { 
                 extern_crates.push("libc".into());
-            }            
-            dynamic_compile(&crate_name,&crate_path,args.get_strings("cfg"),extern_crates);
+            }
+            let mut cfg = args.get_strings("cfg");
+            for f in args.get_strings("features") {
+                cfg.push(format!("feature=\"{}\"",f));
+            }
+            dynamic_compile(&crate_name,&crate_path,cfg,extern_crates);
         }
         return;
     }
