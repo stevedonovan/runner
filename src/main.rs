@@ -29,6 +29,7 @@ Compile and run small Rust snippets
   -x, --extern... (string) add an extern crate to the snippet
   -X, --wild... (string) like -x but implies wildcard use
   -p, --prepend (default '') prepend contents of this file to body
+  -N, --no-prelude do not include runner prelude
 
   Cache Management:
   --create (string...) initialize the static cache with crates
@@ -214,7 +215,12 @@ fn main() {
         if extra != "" {
             extra = es::read_to_string(&extra);
         }
-        code = massage_snippet(code, prelude, extern_crates, wild_crates, extra);
+        let maybe_prelude = if args.get_bool("no-prelude") {
+            "".into()
+        } else {
+            prelude
+        };
+        code = massage_snippet(code, maybe_prelude, extern_crates, wild_crates, extra);
         if ! expression {
             bin.push(&file);
             bin.set_extension("rs");
@@ -406,9 +412,11 @@ fn get_aliases() -> HashMap<String,String> {
 
 
 fn massage_snippet(code: String, prelude: String, extern_crates: Vec<String>, wild_crates: Vec<String>, body_prelude: String) -> String {
+
     fn indent_line(line: &str) -> String {
         format!("    {}\n",line)
     }
+
     let mut prefix = prelude;
     let mut body = String::new();
     body += &body_prelude;
