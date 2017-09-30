@@ -72,6 +72,13 @@ macro_rules! debug {
 }
 ";
 
+#[derive(Default)]
+struct State {
+    build_static: bool,
+    optimize: bool,
+    exe: bool,
+}
+
 fn main() {
     let args = lapp::parse_args(USAGE);
     let prelude = get_prelude();
@@ -137,26 +144,19 @@ fn main() {
             println!("{}",crate_utils::cache_path(&crate_name).display());
         } else {
             println!("building crate '{}' at {}",crate_name, crate_path.display());
-            // implicit linking works fine, until it doesn't
-            let mut extern_crates = args.get_strings("extern");
-            // libc is such a special case
-            if args.get_bool("libc") { 
-                extern_crates.push("libc".into());
-            }
-            let mut cfg = args.get_strings("cfg");
-            for f in args.get_strings("features") {
-                cfg.push(format!("feature=\"{}\"",f));
-            }
-            dynamic_compile(&crate_name,&crate_path,cfg,extern_crates);
+            compile_crate(&args, &Default::default(), &crate_name, &crate_path, None);
         }
         return;
     }
 
-    let build_static = args.get_bool("static");
-    let optimize = args.get_bool("optimize");
+    let state = State {
+        build_static: args.get_bool("static"),
+        optimize: args.get_bool("optimize"),
+        exe: true,
+    };
 
     // we'll pass rest of arguments to program
-    let program_args = args.get_strings("args");    
+    let program_args = args.get_strings("args");
 
     let mut expression = true;
     let mut code = if args.get_bool("expression") {
@@ -181,7 +181,7 @@ fn main() {
         expression = false;
         es::read_to_string(&file)
     };
-    
+
     // expressions may contain environment references like $PATH
     if expression {
         code = strutil::substitute(&code,"$",
@@ -193,9 +193,9 @@ fn main() {
                     env::var(s).or_die("$VAR not found")
                 };
                 format!("{:?}",text)
-            }        
+            }
         );
-    }    
+    }
 
     // ALL executables go into the Runner bin directory...
     let mut bin = runner_directory().join("bin");
@@ -229,34 +229,67 @@ fn main() {
         let program = bin.with_extension(EXE_SUFFIX);
         (file, program)
     };
-    
-    let cache = get_cache(build_static, optimize);
-    // We now have a proper Rust file to compile
-    let mut builder = process::Command::new("rustc");
-    if ! build_static { // stripped-down dynamic link
-        builder.args(&["-C","prefer-dynamic"]).args(&["-C","debuginfo=0"]);
-    } else { // static debug build
-        builder.arg(if optimize {"-O"} else {"-g"});
-    }
-    // implicitly linking against crates in the dynamic or static cache
-    builder.arg("-L").arg(&cache);
-    let status = builder.arg("-o").arg(&program)
-        .arg(rust_file)
-        .status().or_die("can't run rustc");
-    if ! status.success() {
+
+    if ! compile_crate(&args,&state,"",&rust_file,Some(&program)) {
         return;
     }
 
+
     // Finally run the compiled program
+    let cache = get_cache(&state);
     let mut builder = process::Command::new(&program);
-    if ! build_static {
+    if ! state.build_static {
         builder.env("LD_LIBRARY_PATH",format!("{}:{}",crate_utils::rustup_lib(),cache.display()));
     }
     builder.args(&program_args)
         .status()
         .or_die(&format!("can't run program {:?}",program));
-
 }
+
+// handle two useful cases:
+// - compile a crate as a dynamic library, given a name and an output dir
+// - compile a program, given a program
+fn compile_crate(args: &lapp::Args, state: &State,
+    crate_name: &str, crate_path: &Path,
+    output_program: Option<&Path>) -> bool
+{
+    // implicit linking works fine, until it doesn't
+    let mut extern_crates = args.get_strings("extern");
+    // libc is such a special case
+    if args.get_bool("libc") {
+        extern_crates.push("libc".into());
+    }
+    let mut cfg = args.get_strings("cfg");
+    for f in args.get_strings("features") {
+        cfg.push(format!("feature=\"{}\"",f));
+    }
+    let cache = get_cache(&state);
+    let mut builder = process::Command::new("rustc");
+    if ! state.build_static { // stripped-down dynamic link
+        builder.args(&["-C","prefer-dynamic"]).args(&["-C","debuginfo=0"]);
+    } else { // static build
+        builder.arg(if state.optimize {"-O"} else {"-g"});
+    }
+    // implicitly linking against crates in the dynamic or static cache
+    builder.arg("-L").arg(&cache);
+    if ! state.exe { // as a dynamic library
+        builder.args(&["--crate-type","dylib"])
+        .arg("--out-dir").arg(&cache)
+        .arg("--crate-name").arg(&crate_utils::proper_crate_name(crate_name));
+    } else {
+        builder.arg("-o").arg(output_program.unwrap());
+    }
+    for c in cfg {
+        builder.arg("--cfg").arg(&c);
+    }
+    for c in extern_crates {
+        let ext = format!("{}={}/{}{}{}",c,cache.display(),DLL_PREFIX,c,DLL_SUFFIX);
+        builder.arg("--extern").arg(&ext);
+    }
+    builder.arg(crate_path);
+    builder.status().or_die("can't run rustc").success()
+}
+
 
 fn runner_directory() -> PathBuf {
     crate_utils::cargo_home().join(".runner")
@@ -337,11 +370,11 @@ fn get_prelude() -> String {
     es::read_to_string(&prelude)
 }
 
-fn get_cache(build_static: bool, optimize: bool) -> PathBuf {
+fn get_cache(state: &State) -> PathBuf {
     let mut home = runner_directory();
     let scache;
-    let cache = if build_static {
-        let dir = if optimize {"release"} else {"debug"};
+    let cache = if state.build_static {
+        let dir = if state.optimize {"release"} else {"debug"};
         scache = format!("{}/target/{}/deps",STATIC_CACHE,dir);
         &scache
     } else {DYNAMIC_CACHE};
@@ -371,25 +404,6 @@ fn get_aliases() -> HashMap<String,String> {
 	  .to_map()
 }
 
-fn dynamic_compile(crate_name: &str, crate_path: &Path, cfg: Vec<String>, extern_crates: Vec<String>) {
-    let valid_crate_name = crate_utils::proper_crate_name(crate_name);
-    let cache = get_cache(false, false);
-    let mut builder = process::Command::new("rustc");
-        builder.args(&["-C","prefer-dynamic"]).args(&["-C","debuginfo=0"])
-        .arg("-L").arg(&cache)
-        .args(&["--crate-type","dylib"])
-        .arg("--out-dir").arg(&cache)
-        .arg("--crate-name").arg(&valid_crate_name)
-        .arg(crate_path);
-   for c in cfg {
-        builder.arg("--cfg").arg(&c);
-   }
-   for c in extern_crates {
-        let ext = format!("{}={}/{}{}{}",c,cache.display(),DLL_PREFIX,c,DLL_SUFFIX);
-        builder.arg("--extern").arg(&ext);
-   }
-   builder.status().or_die("can't run rustc");
-}
 
 fn massage_snippet(code: String, prelude: String, extern_crates: Vec<String>, wild_crates: Vec<String>, body_prelude: String) -> String {
     fn indent_line(line: &str) -> String {
