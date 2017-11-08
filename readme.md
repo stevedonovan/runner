@@ -66,10 +66,12 @@ you can edit it later with `runner --edit-prelude`.
 
 `debug!` saves typing: `debug!(my_var)` is equivalent to `println!("my_var = {:?}",my_var)`.
 
+`--no-prelude` (`-N`) prevents this from being included.
+
 ## Adding External Crates
 
 As you can see, `runner` is very much about playing with small code snippets. By
-_default_ it links the snippet _dynamically_ which is significantly faster. This
+default it links the snippet _dynamically_ which is significantly faster. This
 hello-world snippet takes 0.34s to build on my machine, but building statically with
 `runner -s print.rs` takes 0.55s.
 
@@ -77,7 +79,7 @@ In both cases, the executable goes into the same directory as the expanded code 
 the dynamically-linked version can't be run standalone unless you make the Rust runtime
 available globally.
 
-The static option is much more flexible. You can easily create a static
+The static option is much more convenient. You can easily create a static
 cache with some common crates:
 
 ```
@@ -159,6 +161,10 @@ so using `-sO` you can build snippets in release mode. Documentation is also bui
 for the cache, and `runner --doc` will open that documentation in the browser. (It's
 always nice to have local docs, especially in bandwidth-starved situations.)
 
+If you want docs for a specific crate, then `runner --doc crate` will work.
+But remember that the Rust documentation generated has a fast offline searchable
+index!
+
 ## Dynamic Linking
 
 It would be good to provide such an experience for the dynamic-link case, since
@@ -178,17 +184,17 @@ The `--compile` action takes three kinds of arguments:
   - a Cargo directory
   - a Rust source file - the crate name is the file name without extension.
 
-But anything more complicated is harder, because dynamic linking is not a priority for
+Dynamic linking is not a priority for
 Rust tooling at the moment. So we have to build more elaborate libraries without the
 help of Cargo. (The following assumes that you have already brought in `regex` for a Cargo project,
 so that the Cargo cache is populated, e.g. with `runner --add regex`)
 
 
 ```
-runner -C --cfg 'feature="default"' --cfg 'feature="use_std"' libc
+runner -C --feature default --feature use_std libc
 runner -C --libc memchr
 runner -C --libc thread-id
-runner -C --cfg 'feature="std"'  void
+runner -C --feature std  void
 runner -C utf8-ranges
 runner -C unreachable
 runner -C aho-corasick
@@ -318,6 +324,23 @@ command lines - the last example becomes (note how short flags can be combined):
 $ runner -sXtime -e "now()"
 ...
 ```
+As a bonus feature, environment variables will be expanded in the 'expression'.
+Here is a one-liner equivalent of the `which` command - with the bonus that it
+finds _all_ matches of the program on the path.
+
+```
+$ runner -i '$PATH.split(":").map(|s| PathBuf::from(s).join("runner")).filter(|p| p.exists())'
+"/home/steve/.cargo/bin/runner"
+```
+
+Any references like `$1` refer to any following command-line arguments:
+
+```
+$ runner -e '$2' 10 20 30
+"20"
+```
+
+This is useful as a way to get large awkward strings into your expressions.
 
 If you can get away with dynamic linking, then `runner` can make it
 easy to test a module interactively. In this way you get much of the
@@ -332,4 +355,68 @@ $ runner -C universe.rs
 $ runner -xuniverse -e "universe::answer()"
 42
 ```
+
+## Compiling Rust Doc Examples
+
+Consider the example for the [filetime](https://docs.rs/filetime) crate:
+
+```rust
+// runner.rs
+use std::fs;
+use filetime::FileTime;
+
+let metadata = fs::metadata("runner.rs").unwrap();
+
+let mtime = FileTime::from_last_modification_time(&metadata);
+println!("{}", mtime);
+
+let atime = FileTime::from_last_access_time(&metadata);
+assert!(mtime < atime);
+
+// Inspect values that can be interpreted across platforms
+println!("{}", mtime.seconds_relative_to_1970());
+println!("{}", mtime.nanoseconds());
+
+// Print the platform-specific value of seconds
+println!("{}", mtime.seconds());
+```
+
+After `runner --add filetime`, this crate is in your static cache. And `runner --doc filetime`
+will give you its local documentation.
+
+However, it can't be compiled directly, for two reasons:
+  - `extern crate filetime` is implicit
+  - `use std::fs` is already in the runner prelude.
+
+So we need to say:
+
+```
+$ runner -s --no-prelude --extern filetime filetime.rs
+1506778536.945440909s
+1506778536
+945440909
+1506778536
+```
+
+Or if you're in a hurry: `runner -sNx filetime filetime.rs`.
+
+You can now compile `filetime` dynamically, but you need to explicitly
+ask for the `libc` crate (a special case due to conflict with an unstable
+library feature.)
+
+```
+$ runner -C -xlibc filetime
+```
+
+Then it's possible to run with `-Nx filetime`; this takes about two-thirds of the
+static build time.
+
+You will also need this trick when exploring the useful but unsafe `libc`
+crate itself:
+
+```rust
+$ runner -xlibc -e 'unsafe { libc::isatty(libc::STDOUT_FILENO) }'
+1
+```
+
 

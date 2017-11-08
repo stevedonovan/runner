@@ -288,9 +288,15 @@ fn compile_crate(args: &lapp::Args, state: &State,
     for c in cfg {
         builder.arg("--cfg").arg(&c);
     }
-    for c in extern_crates {
-        let ext = format!("{}={}/{}{}{}",c,cache.display(),DLL_PREFIX,c,DLL_SUFFIX);
-        builder.arg("--extern").arg(&ext);
+
+    // explicit --extern references are only useful for our dynamic cache
+    // libraries, since the static cache libraries do not have such simple
+    // names
+    if ! state.build_static {
+        for c in extern_crates {
+            let ext = format!("{}={}/{}{}{}",c,cache.display(),DLL_PREFIX,c,DLL_SUFFIX);
+            builder.arg("--extern").arg(&ext);
+        }
     }
     builder.arg(crate_path);
     builder.status().or_die("can't run rustc").success()

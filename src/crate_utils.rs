@@ -54,14 +54,27 @@ pub fn cache_path(crate_name: &str) -> path::PathBuf {
     crates.sort_by(|a,b| a.1.cmp(&b.1));
     crates.pop().or_die(&format!("no such crate: {}",crate_name)).0
 }
+
+// Very hacky stuff - we want the ACTUAL crate name, not the project name
+// So look just past [package] and scrape the name...
+fn crate_name(cargo_toml: &path::Path) -> String {
+    let name_line = es::lines(es::open(cargo_toml))
+        .skip_while(|line| line.trim() != "[package]")
+        .skip(1).next().or_die("totally fked Cargo.toml");
+    let idx = name_line.find('"').or_die("no name?");
+    (&name_line[(idx+1)..(name_line.len()-1)]).into()
+
+}
+
 pub fn crate_path(file: &path::Path, first_arg: &str) -> Result<(path::PathBuf,String),String> {
     if file.exists() {
         let filename = path_file_name(file);
         if file.is_dir() { // assumed to be Cargo directory
-            if ! file.join("Cargo.toml").exists() {
+            let cargo_toml = file.join("Cargo.toml");
+            if ! cargo_toml.exists() {
                 return Err(format!("not a Cargo project directory: {}",file.display()));
             }
-            Ok((file.join("src/lib.rs"), filename))
+            Ok((file.join("src/lib.rs"), crate_name(&cargo_toml)))
         } else { // should be just a Rust source file
             if file.extension().or_die("expecting extension") != "rs" {
                 return Err("expecting Rust source file".into());
@@ -70,6 +83,8 @@ pub fn crate_path(file: &path::Path, first_arg: &str) -> Result<(path::PathBuf,S
             Ok((file.to_path_buf(), name))
         }
     } else {
-        Ok((cache_path(first_arg).join("src/lib.rs"), first_arg.to_string()))
-    }        
+        let project_dir = cache_path(first_arg);
+        let cargo_toml = project_dir.join("Cargo.toml");
+        Ok((project_dir.join("src/lib.rs"), crate_name(&cargo_toml)))
+    }
 }
