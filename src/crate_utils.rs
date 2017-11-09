@@ -60,7 +60,9 @@ pub fn cache_path(crate_name: &str) -> path::PathBuf {
 fn crate_name(cargo_toml: &path::Path) -> String {
     let name_line = es::lines(es::open(cargo_toml))
         .skip_while(|line| line.trim() != "[package]")
-        .skip(1).next().or_die("totally fked Cargo.toml");
+        .skip(1)
+        .skip_while(|line| ! line.starts_with("name "))
+        .next().or_die("totally fked Cargo.toml");
     let idx = name_line.find('"').or_die("no name?");
     (&name_line[(idx+1)..(name_line.len()-1)]).into()
 
@@ -68,7 +70,7 @@ fn crate_name(cargo_toml: &path::Path) -> String {
 
 pub fn crate_path(file: &path::Path, first_arg: &str) -> Result<(path::PathBuf,String),String> {
     if file.exists() {
-        let filename = path_file_name(file);
+        //let filename = path_file_name(file);
         if file.is_dir() { // assumed to be Cargo directory
             let cargo_toml = file.join("Cargo.toml");
             if ! cargo_toml.exists() {
@@ -87,4 +89,20 @@ pub fn crate_path(file: &path::Path, first_arg: &str) -> Result<(path::PathBuf,S
         let cargo_toml = project_dir.join("Cargo.toml");
         Ok((project_dir.join("src/lib.rs"), crate_name(&cargo_toml)))
     }
+}
+
+pub fn full_crate_name(deps: &path::Path, crate_name: &str) -> Option<String> {
+    let mut res = Vec::new();
+    let patt = format!("lib{}-",crate_name);
+    for (p,_) in es::paths(deps) {
+        if let Some(f) = p.file_name() {
+            let name = f.to_string_lossy();
+            //println!("got {}",name);
+            if name.starts_with(&patt) {
+                let cname = &name[3..(name.len()-5) ];
+                res.push(cname.to_string());
+            }
+        }
+    }
+    res.pop()
 }

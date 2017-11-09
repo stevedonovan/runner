@@ -30,6 +30,7 @@ Compile and run small Rust snippets
   -X, --wild... (string) like -x but implies wildcard use
   -p, --prepend (default '') prepend contents of this file to body
   -N, --no-prelude do not include runner prelude
+  -c, --compile-only  will not run program and copies from runner dir
 
   Cache Management:
   --create (string...) initialize the static cache with crates
@@ -239,6 +240,10 @@ fn main() {
     if ! compile_crate(&args,&state,"",&rust_file,Some(&program)) {
         return;
     }
+    if args.get_bool("compile-only") {
+        let here = PathBuf::from(".").join(&rust_file).with_extension(EXE_SUFFIX);
+        fs::copy(&program,&here).or_die("cannot copy program");
+    }
 
 
     // Finally run the compiled program
@@ -289,14 +294,22 @@ fn compile_crate(args: &lapp::Args, state: &State,
         builder.arg("--cfg").arg(&c);
     }
 
-    // explicit --extern references are only useful for our dynamic cache
-    // libraries, since the static cache libraries do not have such simple
-    // names
-    if ! state.build_static {
-        for c in extern_crates {
-            let ext = format!("{}={}/{}{}{}",c,cache.display(),DLL_PREFIX,c,DLL_SUFFIX);
-            builder.arg("--extern").arg(&ext);
-        }
+    // explicit --extern references require special treatment for
+    // static builds, since the libnames include the SHA.
+    // So we look for .rlibs matching the crate explicitly, and
+    // currently randomly pick one if multiple (which may happen
+    // with transitive dependencies)
+
+    for c in extern_crates {
+        let full_name = if state.build_static {
+            crate_utils::full_crate_name(&cache,&c).or_die(&format!("no such crate '{}",c))
+        } else {
+            c.clone()
+        };
+        let ext = format!("{}={}/{}{}{}",c,cache.display(),DLL_PREFIX,full_name,
+            if state.build_static {".rlib"} else {DLL_SUFFIX});
+        //println!("extern '{}'",ext);
+        builder.arg("--extern").arg(&ext);
     }
     builder.arg(crate_path);
     builder.status().or_die("can't run rustc").success()
