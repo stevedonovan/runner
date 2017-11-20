@@ -24,13 +24,13 @@ Compile and run small Rust snippets
   -s, --static build statically (default is dynamic)
   -O, --optimize optimized static build
   -e, --expression evaluate an expression
-  -i, --iterator evaluate an iterator
-  -n, --lines evaluate expression over stdin; 'line' is defined
+  -i, --iterator iterate over an expression
+  -n, --lines evaluate expression over stdin; the var 'line' is defined
   -x, --extern... (string) add an extern crate to the snippet
-  -X, --wild... (string) like -x but implies wildcard use
-  -p, --prepend (default '') prepend contents of this file to body
+  -X, --wild... (string) like -x but implies wildcard import
+  -p, --prepend (default '') put this statement in body (useful for -i etc)
   -N, --no-prelude do not include runner prelude
-  -c, --compile-only  will not run program and copies from runner dir
+  -c, --compile-only  will not run program and copies it into current dir
 
   Cache Management:
   --create (string...) initialize the static cache with crates
@@ -54,6 +54,7 @@ Compile and run small Rust snippets
 ";
 
 // this will be initially written to ~/.cargo/.runner/prelude and
+// can then be edited.
 // can then be edited.
 const PRELUDE: &'static str = "
 #![allow(unused_imports)]
@@ -213,8 +214,8 @@ fn main() {
             extern_crates.extend(wild_crates.iter().cloned());
         }
         let mut extra = args.get_string("prepend");
-        if extra != "" {
-            extra = es::read_to_string(&extra);
+        if ! extra.is_empty() {
+            extra.push(';');
         }
         let maybe_prelude = if args.get_bool("no-prelude") {
             "".into()
