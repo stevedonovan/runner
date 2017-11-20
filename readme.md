@@ -324,6 +324,17 @@ command lines - the last example becomes (note how short flags can be combined):
 $ runner -sXtime -e "now()"
 ...
 ```
+
+With `-e`,`-n` or `-i`, you can specify. some initial code with `--prepend`:
+
+```
+$  runner -p 'let nums=0..5' -i 'nums.clone().zip(nums.skip(1))'
+(0, 1)
+(1, 2)
+(2, 3)
+(3, 4)
+```
+
 As a bonus feature, environment variables will be expanded in the 'expression'.
 Here is a one-liner equivalent of the `which` command - with the bonus that it
 finds _all_ matches of the program on the path.
@@ -352,8 +363,19 @@ pub fn answer() -> i32 {
     42
 }
 $ runner -C universe.rs
+building crate 'universe' at universe.rs
 $ runner -xuniverse -e "universe::answer()"
 42
+```
+This provides another way to get to play with big predefined strings:
+
+```
+$ cat > text.rs
+pub const TEXT: &str = "possibly very long string";
+$ runner -C text.rs
+building crate 'text' at text.rs
+$ runner -Xtext -e 'TEXT.find("long")'
+Some(14)
 ```
 
 ## Compiling Rust Doc Examples
