@@ -232,7 +232,8 @@ fn main() {
         let program = bin.with_extension(EXE_SUFFIX);
         (bin, program)
     } else {
-        bin.push(&file);
+        // the 'proper' case - use the file name part
+        bin.push(file.file_name().unwrap());
         let program = bin.with_extension(EXE_SUFFIX);
         (file, program)
     };
@@ -243,6 +244,7 @@ fn main() {
     if args.get_bool("compile-only") {
         let here = PathBuf::from(".").join(&rust_file).with_extension(EXE_SUFFIX);
         fs::copy(&program,&here).or_die("cannot copy program");
+        return;
     }
 
 
