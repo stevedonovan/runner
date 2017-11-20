@@ -1,0 +1,16 @@
+## 0.3.0 Release
+
+### New Features
+
+  - `--prepend` inserts code into body for -e, -i and -n
+  - `--extern` also used for explicitly linking to a crate
+  - `--features` shortcut for specifying features when compiling
+  - `--compile-only` copies file to current dir after compilation
+  - `--no-prelude` prevent usual runner prelude from being included
+  - "$VAR" environment expansions for -e, -i and -n
+  - `--doc` can be given a crate name
+
+### Fixes
+
+  - distinction between project and crate names
+
