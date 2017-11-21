@@ -171,22 +171,18 @@ fn main() {
     if args.get_bool("lines") {
         // The variable 'line' is available to an expression, evaluated for each line in stdin
         // But if the expression ends with '}' then don't dump out this value!
-        let stmt = first_arg.ends_with('}');
+        let stmt = first_arg.trim_right().ends_with('}');
         let mut s = String::from("
             let stdin = io::stdin();
             for line in stdin.lock().lines() {
                 let line = line?;
         ");
         s += &if ! stmt {
-            format!("
-                let val = {};
-                println!(\"{{:?}}\",val);
-            ", first_arg)
+            format!("let val = {};\nprintln!(\"{{:?}}\",val);", first_arg)
         } else {
-            first_arg
+            format!("  {};",first_arg)
         };
-        s += "}";
-        println!("got {}",s);
+        s += "\n}";
         s
     } else { // otherwise, just a file
         expression = false;
