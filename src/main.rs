@@ -55,7 +55,6 @@ Compile and run small Rust snippets
 
 // this will be initially written to ~/.cargo/.runner/prelude and
 // can then be edited.
-// can then be edited.
 const PRELUDE: &'static str = "
 #![allow(unused_imports)]
 #![allow(unused_variables)]
@@ -106,7 +105,6 @@ fn main() {
     }
     let crates = args.get_strings("add");
     if crates.len() > 0 {
-        static_cache_dir_check(&args);
         create_static_cache(&crates,false);
         return;
     }
@@ -352,8 +350,23 @@ fn build_static_cache() -> bool {
     cargo(&["doc"])
 }
 
-fn create_static_cache(crates: &[String], create: bool) {
+fn create_static_cache(crates: &[String], please_create: bool) {
     use std::io::prelude::*;
+
+    // this is called with `true` for "--create" and `false` for "--add".
+    let static_cache = static_cache_dir();
+    let exists = static_cache.exists();
+
+    let mut create = please_create;
+    // It is fine to start with "add" since action is obvious...
+    if ! create && ! exists {
+        create = true;
+    } else
+    // but not to do "create" after static cache has been created
+    if create && exists {
+        es::quit("static cache already created - use --add");
+    }
+
     let mut home = runner_directory();
     env::set_current_dir(&home).or_die("cannot change to home directory");
     if create {
