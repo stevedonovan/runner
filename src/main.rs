@@ -166,7 +166,7 @@ fn main() {
     } else
     if args.get_bool("iterator") {
         // The expression is anything that implements IntoIterator
-        format!("let iter = {};\n for val in iter {{ println!(\"{{:?}}\",val);}}", first_arg)
+        format!("for val in {} {{\n println!(\"{{:?}}\",val);\n}}", first_arg)
     } else
     if args.get_bool("lines") {
         // The variable 'line' is available to an expression, evaluated for each line in stdin
