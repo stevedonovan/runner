@@ -17,15 +17,20 @@ pub fn edit(p: &Path) {
         ed
     } else
     // MacOS open will NOT open random text files, so vim it is...
-    if cfg!(target_os = "macos") {
+    if cfg!(macos) {
         "vim".into()
+    } else
+    if cfg!(windows) {
+		// likewise, regular 'start' won't cope with files-without-known-extensions
+		// Notepad is useless, so use Wordpad
+		"write".into()
     } else {
         "open".into()
     };
     if editor == "open" {
         open(p);
     } else {
-        Command::new(&editor).arg(&p).status().or_die("Cannot find editor");
+        Command::new(&editor).arg(&p).status().or_die(&format!("Cannot find editor {:?}: ",p));
     }
 }
 
