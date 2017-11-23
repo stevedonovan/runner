@@ -30,10 +30,10 @@ fn semver_i (s: &str) -> u64 {
 }
 
 pub fn cargo_home() -> path::PathBuf {
-	if let Ok(home) = env::var("CARGO_HOME") { // set in cargo runs
-		home.into()
-	} else {
-		env::home_dir().or_die("no home!").join(".cargo")
+    if let Ok(home) = env::var("CARGO_HOME") { // set in cargo runs
+        home.into()
+    } else {
+        env::home_dir().or_die("no home!").join(".cargo")
     }
 }
 
@@ -74,13 +74,12 @@ fn crate_name(cargo_toml: &path::Path) -> String {
 
 pub fn crate_path(file: &path::Path, first_arg: &str) -> Result<(path::PathBuf,String),String> {
     if file.exists() {
-        //let filename = path_file_name(file);
         if file.is_dir() { // assumed to be Cargo directory
             let cargo_toml = file.join("Cargo.toml");
             if ! cargo_toml.exists() {
                 return Err(format!("not a Cargo project directory: {}",file.display()));
             }
-            Ok((file.join("src/lib.rs"), crate_name(&cargo_toml)))
+            Ok((file.join("src").join("lib.rs"), crate_name(&cargo_toml)))
         } else { // should be just a Rust source file
             if file.extension().or_die("expecting extension") != "rs" {
                 return Err("expecting Rust source file".into());
@@ -91,7 +90,7 @@ pub fn crate_path(file: &path::Path, first_arg: &str) -> Result<(path::PathBuf,S
     } else {
         let project_dir = cache_path(first_arg);
         let cargo_toml = project_dir.join("Cargo.toml");
-        Ok((project_dir.join("src/lib.rs"), crate_name(&cargo_toml)))
+        Ok((project_dir.join("src").join("lib.rs"), crate_name(&cargo_toml)))
     }
 }
 
@@ -99,8 +98,8 @@ pub fn full_crate_name(deps: &path::Path, crate_name: &str) -> Option<String> {
     let mut res = Vec::new();
     let patt = format!("lib{}-",crate_name);
     for entry in fs::read_dir(deps).expect("cannot access dependencies dir") {
-		let entry = entry.expect("cannot access deps entry");
-		let path = entry.path();
+        let entry = entry.expect("cannot access deps entry");
+        let path = entry.path();
         if let Some(f) = path.file_name() {
             let name = f.to_string_lossy();
             //println!("got {}",name);
