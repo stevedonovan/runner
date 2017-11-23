@@ -159,18 +159,29 @@ fn main() {
     // we'll pass rest of arguments to program
     let program_args = args.get_strings("args");
 
+    // Windows shell quoting is a mess, so we make single quotes
+    // become double quotes in expressions
+    fn quote(s: String) -> String {
+        if cfg!(windows) {
+            s.replace("\'","\"")
+        } else {
+            s
+        }
+    }
+
     let mut expression = true;
     let mut code = if args.get_bool("expression") {
         // Evaluating an expression: just print it out.
-        format!("println!(\"{{:?}}\",{});", first_arg)
+        format!("println!(\"{{:?}}\",{});", quote(first_arg))
     } else
     if args.get_bool("iterator") {
         // The expression is anything that implements IntoIterator
-        format!("for val in {} {{\n println!(\"{{:?}}\",val);\n}}", first_arg)
+        format!("for val in {} {{\n println!(\"{{:?}}\",val);\n}}", quote(first_arg))
     } else
     if args.get_bool("lines") {
         // The variable 'line' is available to an expression, evaluated for each line in stdin
         // But if the expression ends with '}' then don't dump out this value!
+        let first_arg = quote(first_arg);
         let stmt = first_arg.trim_right().ends_with('}');
         let mut s = String::from("
             let stdin = io::stdin();
@@ -257,7 +268,16 @@ fn main() {
     let cache = get_cache(&state);
     let mut builder = process::Command::new(&program);
     if ! state.build_static {
-        builder.env("LD_LIBRARY_PATH",format!("{}:{}",crate_utils::rustup_lib(),cache.display()));
+        // must make the dynamic cache visible to the program!
+        if cfg!(windows) {
+            // Windows resolves DLL references on the PATH
+            let path = env::var("PATH").unwrap();
+            let new_path = format!("{};{}",path,cache.display());
+            builder.env("PATH",new_path);
+        } else {
+            // whereas POSIX requires LD_LIBRARY_PATH
+            builder.env("LD_LIBRARY_PATH",format!("{}:{}",crate_utils::rustup_lib(),cache.display()));
+        }
     }
     builder.args(&program_args)
         .status()
@@ -308,14 +328,17 @@ fn compile_crate(args: &lapp::Args, state: &State,
     // with transitive dependencies)
 
     for c in extern_crates {
-        let full_name = if state.build_static {
-            crate_utils::full_crate_name(&cache,&c).or_die(&format!("no such crate '{}",c))
+        let (full_name,prefix) = if state.build_static {
+            (
+            crate_utils::full_crate_name(&cache,&c).or_die(&format!("no such crate '{}",c)),
+            "lib"
+            )
         } else {
-            c.clone()
+            (c.clone(),DLL_PREFIX)
         };
-        let ext = format!("{}={}/{}{}{}",c,cache.display(),DLL_PREFIX,full_name,
-            if state.build_static {".rlib"} else {DLL_SUFFIX});
-        //println!("extern '{}'",ext);
+        let mut full_path = PathBuf::from(&cache);
+        full_path.push(format!("{}{}{}",prefix,full_name,if state.build_static {".rlib"} else {DLL_SUFFIX}));
+        let ext = format!("{}={}",c,full_path.display());
         builder.arg("--extern").arg(&ext);
     }
     builder.arg(crate_path);
@@ -419,13 +442,14 @@ fn get_prelude() -> String {
 
 fn get_cache(state: &State) -> PathBuf {
     let mut home = runner_directory();
-    let scache;
-    let cache = if state.build_static {
-        let dir = if state.optimize {"release"} else {"debug"};
-        scache = format!("{}/target/{}/deps",STATIC_CACHE,dir);
-        &scache
-    } else {DYNAMIC_CACHE};
-    home.push(cache);
+    if state.build_static {
+        home.push(STATIC_CACHE);
+        home.push("target");
+        home.push(if state.optimize {"release"} else {"debug"});
+        home.push("deps");
+    } else {
+        home.push(DYNAMIC_CACHE);
+    };
     home
 }
 
@@ -446,9 +470,9 @@ fn add_aliases(aliases: Vec<String>) {
 fn get_aliases() -> HashMap<String,String> {
     let alias_file = runner_directory().join("alias");
     if ! alias_file.is_file() { return HashMap::new(); }
-	es::lines(es::open(&alias_file))
+    es::lines(es::open(&alias_file))
       .filter_map(|s| s.split_at_delim('=').trim()) // split into (String,String)
-	  .to_map()
+      .to_map()
 }
 
 
