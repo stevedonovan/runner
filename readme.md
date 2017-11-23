@@ -83,7 +83,7 @@ The static option is much more convenient. You can easily create a static
 cache with some common crates:
 
 ```
-$ runner --create 'time json regex'
+$ runner --create "time json regex"
 ```
 
 You can add as many crates if you like - number of available dependencies doesn't
@@ -130,17 +130,20 @@ Compile and run small Rust snippets
   -s, --static build statically (default is dynamic)
   -O, --optimize optimized static build
   -e, --expression evaluate an expression
-  -i, --iterator evaluate an iterator
-  -n, --lines evaluate expression over stdin; 'line' is defined
+  -i, --iterator iterate over an expression
+  -n, --lines evaluate expression over stdin; the var 'line' is defined
   -x, --extern... (string) add an extern crate to the snippet
-  -X, --wild... (string) like -x but implies wildcard use
+  -X, --wild... (string) like -x but implies wildcard import
+  -p, --prepend (default '') put this statement in body (useful for -i etc)
+  -N, --no-prelude do not include runner prelude
+  -c, --compile-only  will not run program and copies it into current dir
 
   Cache Management:
   --create (string...) initialize the static cache with crates
   --add  (string...) add new crates to the cache (after --create)
   --edit  edit the static cache Cargo.toml
   --build rebuild the static cache
-  --doc  display documentation
+  --doc  display documentation (any argument will be specific crate name)
   --edit-prelude edit the default prelude for snippets
   --alias (string...) crate aliases in form alias=crate_name (used with -x)
 
@@ -148,10 +151,13 @@ Compile and run small Rust snippets
   -P, --crate-path show path of crate source in Cargo cache
   -C, --compile  compile crate dynamically (limited)
   --cfg... (string) pass configuration variables to rustc
+  --features (string...) enable features in compilation
   --libc  link dynamically against libc (special case)
+  (--extern is used to explicitly link in a crate by name)
 
   <program> (string) Rust program, snippet or expression
   <args> (string...) arguments to pass to program
+
 
 ```
 
@@ -191,10 +197,10 @@ so that the Cargo cache is populated, e.g. with `runner --add regex`)
 
 
 ```
-runner -C --feature default --feature use_std libc
+runner -C --features "default use_std" libc
 runner -C --libc memchr
 runner -C --libc thread-id
-runner -C --feature std  void
+runner -C --features std  void
 runner -C utf8-ranges
 runner -C unreachable
 runner -C aho-corasick
@@ -224,6 +230,10 @@ to find out dependencies and features, then this command will open it for you:
 ```
 favorite-editor $(runner -P some-crate)/Cargo.toml
 ```
+There are limitations to dynamic linking currently - crates which are "no std"
+(and don't provide a feature to turn this off) cannot be compiled.  Also, remember
+that all invocations of `runner -C` end up with shared libraries placed in one
+directory called the 'dynamic cache'.
 
 ## Rust on the Command-line
 
@@ -250,6 +260,19 @@ Some("dog")
 ```
 
 (This works because we have a `use std::path::PathBuf` in the runner prelude.)
+
+Now, this will not work on Windows since [quoting](https://stackoverflow.com/questions/7760545/escape-double-quotes-in-parameter)
+is seriously baroque. So `runner` re-uses an old trick that some Windows versions of `AWK` used. We can
+only use double-quotes for an argument that may contain spaces, but single-quotes within this will
+be converted to double-quotes.
+
+```
+c:> runner -e "PathBuf::from('bonzo.dog').extension()"
+Some("dog")
+```
+
+So, in these examples where you need to quote strings in the Rust expression,
+remember that it works the other way in Windows.
 
 `-i` (or `--iterator`) evaluates iterator expressions and does a debug
 dump of the results:
@@ -422,23 +445,5 @@ $ runner -s --no-prelude --extern filetime filetime.rs
 
 Or if you're in a hurry: `runner -sNx filetime filetime.rs`.
 
-You can now compile `filetime` dynamically, but you need to explicitly
-ask for the `libc` crate (a special case due to conflict with an unstable
-library feature.)
-
-```
-$ runner -C -xlibc filetime
-```
-
-Then it's possible to run with `-Nx filetime`; this takes about two-thirds of the
-static build time.
-
-You will also need this trick when exploring the useful but unsafe `libc`
-crate itself:
-
-```rust
-$ runner -xlibc -e 'unsafe { libc::isatty(libc::STDOUT_FILENO) }'
-1
-```
 
 
