@@ -307,6 +307,10 @@ fn compile_crate(args: &lapp::Args, state: &State,
         builder.args(&["-C","prefer-dynamic"]).args(&["-C","debuginfo=0"]);
     } else { // static build
         builder.arg(if state.optimize {"-O"} else {"-g"});
+        if state.optimize {
+            // no point in carrying around all that baggage...
+            builder.args(&["-C","debuginfo=0"]);
+        }
     }
     // implicitly linking against crates in the dynamic or static cache
     builder.arg("-L").arg(&cache);
