@@ -1,5 +1,6 @@
 // Find Cargo's source cache directory for a crate
 use super::es;
+use std::fs;
 use es::traits::*;
 use std::env;
 use std::path;
@@ -29,8 +30,11 @@ fn semver_i (s: &str) -> u64 {
 }
 
 pub fn cargo_home() -> path::PathBuf {
-    env::var("CARGO_HOME") // set in cargo runs
-        .unwrap_or(env::var("HOME").or_die("no home!") + "/.cargo").into()
+	if let Ok(home) = env::var("CARGO_HOME") { // set in cargo runs
+		home.into()
+	} else {
+		env::home_dir().or_die("no home!").join(".cargo")
+    }
 }
 
 pub fn cache_path(crate_name: &str) -> path::PathBuf {
@@ -94,8 +98,10 @@ pub fn crate_path(file: &path::Path, first_arg: &str) -> Result<(path::PathBuf,S
 pub fn full_crate_name(deps: &path::Path, crate_name: &str) -> Option<String> {
     let mut res = Vec::new();
     let patt = format!("lib{}-",crate_name);
-    for (p,_) in es::paths(deps) {
-        if let Some(f) = p.file_name() {
+    for entry in fs::read_dir(deps).expect("cannot access dependencies dir") {
+		let entry = entry.expect("cannot access deps entry");
+		let path = entry.path();
+        if let Some(f) = path.file_name() {
             let name = f.to_string_lossy();
             //println!("got {}",name);
             if name.starts_with(&patt) {
