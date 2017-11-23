@@ -81,7 +81,12 @@ struct State {
     exe: bool,
 }
 
+static mut UNSTABLE: bool = false;
+
 fn main() {
+    if crate_utils::rustup_lib().find("stable-").is_none() {
+        unsafe { UNSTABLE = true; }
+    }
     let args = lapp::parse_args(USAGE);
     let prelude = get_prelude();
 
@@ -258,7 +263,9 @@ fn main() {
         return;
     }
     if args.get_bool("compile-only") {
-        let here = PathBuf::from(".").join(&rust_file).with_extension(EXE_SUFFIX);
+        let file_name = rust_file.file_name().or_die("no file name?");
+        let here = PathBuf::from(".").join(file_name).with_extension(EXE_SUFFIX);
+        println!("Success. copying {:?} to {:?}",program,here);
         fs::copy(&program,&here).or_die("cannot copy program");
         return;
     }
@@ -351,7 +358,11 @@ fn compile_crate(args: &lapp::Args, state: &State,
 
 
 fn runner_directory() -> PathBuf {
-    crate_utils::cargo_home().join(".runner")
+    let mut runner = crate_utils::cargo_home().join(".runner");
+    if unsafe {UNSTABLE} {
+        runner.push("unstable");
+    }
+    runner
 }
 
 fn cargo(args: &[&str]) -> bool {
@@ -430,7 +441,7 @@ fn get_prelude() -> String {
     let home = runner_directory();
     let pristine = ! home.is_dir();
     if pristine {
-        fs::create_dir(&home).or_die("cannot create runner directory");
+        fs::create_dir_all(&home).or_die("cannot create runner directory");
     }
     let prelude = home.join("prelude");
     let bin = home.join("bin");
