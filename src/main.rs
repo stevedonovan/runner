@@ -498,6 +498,7 @@ fn massage_snippet(code: String, prelude: String, extern_crates: Vec<String>, wi
     }
 
     let mut prefix = prelude;
+    let mut crate_begin = String::new();
     let mut body = String::new();
     body += &body_prelude;
     {
@@ -519,18 +520,24 @@ fn massage_snippet(code: String, prelude: String, extern_crates: Vec<String>, wi
         for line in lines.by_ref() {
             let line = line.trim_left();
             if first { // files may start with #! shebang...
-                if line.starts_with("#!") {
+                if line.starts_with("#!/") {
                     continue;
                 }
                 first = false;
             }
             // crate import, use should go at the top.
             // Particularly need to force crate-level attributes to the top
-            // - currently only 'macro_use'.
-            if line.starts_with("//") || line.starts_with("#[macro_use") ||
-                line.starts_with("extern ") || line.starts_with("use ") {
-                prefix += line;
-                prefix.push('\n');
+            // These must not be in the `run` function we're generating
+            if  line.starts_with("#[macro_use") ||
+                line.starts_with("extern ") ||
+                line.starts_with("use ") {
+                    prefix += line;
+                    prefix.push('\n');
+            } else
+            if line.starts_with("#![") {
+                // inner attributes really need to be at the top of the file
+                crate_begin += line;
+                crate_begin.push('\n');
             } else
             if line.len() > 0 {
                 body += &indent_line(line);
@@ -542,6 +549,7 @@ fn massage_snippet(code: String, prelude: String, extern_crates: Vec<String>, wi
     }
 
     format!("{}
+{}
 use std::error::Error;
 fn run() -> Result<(),Box<Error>> {{
 {}    Ok(())
@@ -551,7 +559,7 @@ fn main() {{
         println!(\"error: {{:?}}\",e);
     }}
 }}
-",prefix,body)
+",crate_begin,prefix,body)
 
 }
 
