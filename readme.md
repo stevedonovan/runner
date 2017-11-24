@@ -198,7 +198,7 @@ so that the Cargo cache is populated, e.g. with `runner --add regex`)
 
 ```
 runner -C --features "default use_std" libc
-runner -C --libc memchr
+runner -C --libc --features "default use_std" memchr
 runner -C --libc thread-id
 runner -C --features std  void
 runner -C utf8-ranges
@@ -233,7 +233,8 @@ favorite-editor $(runner -P some-crate)/Cargo.toml
 There are limitations to dynamic linking currently - crates which are "no std"
 (and don't provide a feature to turn this off) cannot be compiled.  Also, remember
 that all invocations of `runner -C` end up with shared libraries placed in one
-directory called the 'dynamic cache'.
+directory called the 'dynamic cache' - there can only be one crate called 'libs'
+for example.
 
 ## Rust on the Command-line
 
@@ -305,7 +306,9 @@ $ echo "hello there" | runner -n 'line.to_uppercase()'
 ```
 The `-x` flag (`--extern`) allows you to insert an `extern crate` into your
 snippet. This is particularly useful for these one-line shortcuts. For
-example, my `easy-shortcuts` crate has a couple of helper functions:
+example, my `easy-shortcuts` crate has a couple of helper functions. Before
+running these examples, first `runner --add easy-shortcuts` to load it into the
+static crate, and then `runner -C easy-shortcuts` to dynamically compile it.
 
 ```
 $ runner -xeasy_shortcuts -e 'easy_shortcuts::argn_err(1,"gimme an arg!")' 'an arg'
