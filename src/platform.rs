@@ -17,13 +17,13 @@ pub fn edit(p: &Path) {
         ed
     } else
     // MacOS open will NOT open random text files, so vim it is...
-    if cfg!(macos) {
+    if cfg!(target_os = "macos") {
         "vim".into()
     } else
-    if cfg!(windows) {
-		// likewise, regular 'start' won't cope with files-without-known-extensions
-		// Notepad is useless, so use Wordpad
-		"write".into()
+    if cfg!(target_os = "windows") {
+        // likewise, regular 'start' won't cope with files-without-known-extensions
+        // Notepad is useless, so use Wordpad
+        "write".into()
     } else {
         "open".into()
     };
