@@ -3,6 +3,7 @@
 //! Please see [readme](https://github.com/stevedonovan/runner/blob/master/readme.md)
 extern crate easy_shortcuts as es;
 extern crate lapp;
+#[macro_use] extern crate lazy_static;
 use es::traits::*;
 use std::process;
 use std::env;
@@ -18,6 +19,8 @@ mod strutil;
 use std::env::consts::{EXE_SUFFIX,DLL_SUFFIX,DLL_PREFIX};
 
 use platform::{open,edit};
+
+use crate_utils::{RUSTUP_LIB, UNSTABLE};
 
 const USAGE: &str = "
 Compile and run small Rust snippets
@@ -81,12 +84,7 @@ struct State {
     exe: bool,
 }
 
-static mut UNSTABLE: bool = false;
-
 fn main() {
-    if crate_utils::rustup_lib().find("stable-").is_none() {
-        unsafe { UNSTABLE = true; }
-    }
     let args = lapp::parse_args(USAGE);
     let prelude = get_prelude();
 
@@ -283,7 +281,7 @@ fn main() {
             builder.env("PATH",new_path);
         } else {
             // whereas POSIX requires LD_LIBRARY_PATH
-            builder.env("LD_LIBRARY_PATH",format!("{}:{}",crate_utils::rustup_lib(),cache.display()));
+            builder.env("LD_LIBRARY_PATH",format!("{}:{}",*RUSTUP_LIB,cache.display()));
         }
     }
     builder.args(&program_args)
@@ -359,7 +357,7 @@ fn compile_crate(args: &lapp::Args, state: &State,
 
 fn runner_directory() -> PathBuf {
     let mut runner = crate_utils::cargo_home().join(".runner");
-    if unsafe {UNSTABLE} {
+    if *UNSTABLE {
         runner.push("unstable");
     }
     runner

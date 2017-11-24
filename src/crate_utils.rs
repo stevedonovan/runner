@@ -5,9 +5,12 @@ use es::traits::*;
 use std::env;
 use std::path;
 
-pub fn rustup_lib() -> String {
-    es::shell("rustc --print sysroot") + "/lib"
+
+lazy_static! {
+    pub static ref RUSTUP_LIB: String = es::shell("rustc --print sysroot") + "/lib";
+    pub static ref UNSTABLE: bool = RUSTUP_LIB.find("stable-").is_none();
 }
+
 pub fn proper_crate_name(crate_name: &str) -> String {
     crate_name.replace('-',"_")
 }
