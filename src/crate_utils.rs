@@ -97,8 +97,8 @@ pub fn crate_path(file: &path::Path, first_arg: &str) -> Result<(path::PathBuf,S
 pub fn full_crate_name(deps: &path::Path, crate_name: &str) -> Option<String> {
     let mut res = Vec::new();
     let patt = format!("lib{}-",crate_name);
-    for entry in fs::read_dir(deps).expect("cannot access dependencies dir") {
-        let entry = entry.expect("cannot access deps entry");
+    for entry in fs::read_dir(deps).or_die("cannot access dependencies dir") {
+        let entry = entry.or_die("cannot access deps entry");
         let path = entry.path();
         if let Some(f) = path.file_name() {
             let name = f.to_string_lossy();
