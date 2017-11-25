@@ -142,6 +142,7 @@ Compile and run small Rust snippets
   --create (string...) initialize the static cache with crates
   --add  (string...) add new crates to the cache (after --create)
   --edit  edit the static cache Cargo.toml
+  --update update all, or a specific package given as argument
   --build rebuild the static cache
   --doc  display documentation (any argument will be specific crate name)
   --edit-prelude edit the default prelude for snippets
@@ -162,7 +163,11 @@ Compile and run small Rust snippets
 ```
 
 You can say `runner --edit` to edit the static cache `Cargo.toml`, and `runner --build` to
-rebuild the cache afterwards. The cache is built for both debug and release mode,
+rebuild the cache afterwards. `runner update` will update all the dependencies in the
+cache, and `runner update package` will update a _particular_ package - follow this
+with `build` as before.
+
+ The cache is built for both debug and release mode,
 so using `-sO` you can build snippets in release mode. Documentation is also built
 for the cache, and `runner --doc` will open that documentation in the browser. (It's
 always nice to have local docs, especially in bandwidth-starved situations.)

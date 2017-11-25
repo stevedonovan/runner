@@ -38,6 +38,7 @@ Compile and run small Rust snippets
   Cache Management:
   --create (string...) initialize the static cache with crates
   --add  (string...) add new crates to the cache (after --create)
+  --update update all, or a specific package given as argument
   --edit  edit the static cache Cargo.toml
   --build rebuild the static cache
   --doc  display documentation (any argument will be specific crate name)
@@ -112,15 +113,29 @@ fn main() {
         return;
     }
 
-    if args.get_bool("edit") || args.get_bool("build") || args.get_bool("doc") {
+    // operations on the static cache
+    let (edit_toml,build,doc,update) =
+        (args.get_bool("edit"), args.get_bool("build"), args.get_bool("doc"), args.get_bool("update"));
+
+    if edit_toml || build || doc || update {
+        let maybe_argument = args.get_string_result("program");
         let static_cache = static_cache_dir_check(&args);
-        if args.get_bool("build") {
+        if build || update {
             env::set_current_dir(&static_cache).or_die("static cache wasn't a directory?");
-            build_static_cache();
+            if build {
+                build_static_cache();
+            } else {
+                if let Ok(package) = maybe_argument {
+                    cargo(&["update","--package",&package]);
+                } else {
+                    cargo(&["update"]);
+                }
+                return;
+            }
         } else
-        if args.get_bool("doc") {
+        if doc {
             let the_crate = crate_utils::proper_crate_name(
-                &if let Ok(file) = args.get_string_result("program") {
+                &if let Ok(file) =  maybe_argument {
                     file
                 } else {
                     "static_cache".to_string()
@@ -128,7 +143,7 @@ fn main() {
             );
             let docs = static_cache.join(&format!("target/doc/{}/index.html",the_crate));
             open(&docs);
-        } else {
+        } else { // must be edit_toml
             let toml = static_cache.join("Cargo.toml");
             edit(&toml);
         }
