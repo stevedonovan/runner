@@ -71,6 +71,7 @@ use std::io;
 use std::io::prelude::*;
 use std::env;
 use std::path::{PathBuf,Path};
+use std::collections::HashMap;
 
 macro_rules! debug {
     ($x:expr) => {
