@@ -593,8 +593,8 @@ fn massage_snippet(code: String, prelude: String, extern_crates: Vec<String>, wi
 
     format!("{}
 {}
-use std::error::Error;
-fn run() -> Result<(),Box<Error>> {{
+
+fn run() -> std::result::Result<(),Box<std::error::Error>> {{
 {}    Ok(())
 }}
 fn main() {{
