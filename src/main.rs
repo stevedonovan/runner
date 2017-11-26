@@ -41,6 +41,7 @@ Compile and run small Rust snippets
   --update update all, or a specific package given as argument
   --edit  edit the static cache Cargo.toml
   --build rebuild the static cache
+  --cleanup clean out stale rlibs from cache
   --doc  display documentation (any argument will be specific crate name)
   --edit-prelude edit the default prelude for snippets
   --alias (string...) crate aliases in form alias=crate_name (used with -x)
@@ -78,11 +79,29 @@ macro_rules! debug {
 }
 ";
 
-#[derive(Default)]
 struct State {
     build_static: bool,
     optimize: bool,
     exe: bool,
+}
+
+impl State {
+    fn exe(is_static: bool, optimized: bool) -> State {
+        State {
+            build_static: is_static,
+            optimize: optimized,
+            exe: true
+        }
+    }
+
+    fn dll(optimized: bool) -> State {
+        State {
+            build_static: false,
+            optimize: optimized,
+            exe: false
+        }
+    }
+
 }
 
 fn main() {
@@ -114,22 +133,25 @@ fn main() {
     }
 
     // operations on the static cache
-    let (edit_toml,build,doc,update) =
-        (args.get_bool("edit"), args.get_bool("build"), args.get_bool("doc"), args.get_bool("update"));
+    let b = |p| args.get_bool(p);
+    let (edit_toml, build, doc, update, cleanup) =
+        (b("edit"), b("build"), b("doc"), b("update"), b("cleanup"));
 
-    if edit_toml || build || doc || update {
+    if edit_toml || build || doc || update || cleanup {
         let maybe_argument = args.get_string_result("program");
         let static_cache = static_cache_dir_check(&args);
         if build || update {
             env::set_current_dir(&static_cache).or_die("static cache wasn't a directory?");
             if build {
                 build_static_cache();
+                clean_cache();
             } else {
                 if let Ok(package) = maybe_argument {
                     cargo(&["update","--package",&package]);
                 } else {
                     cargo(&["update"]);
                 }
+                clean_cache();
                 return;
             }
         } else
@@ -143,6 +165,9 @@ fn main() {
             );
             let docs = static_cache.join(&format!("target/doc/{}/index.html",the_crate));
             open(&docs);
+        } else
+        if cleanup {
+            clean_cache();
         } else { // must be edit_toml
             let toml = static_cache.join("Cargo.toml");
             edit(&toml);
@@ -152,6 +177,7 @@ fn main() {
 
     let first_arg = args.get_string("program");
     let file = PathBuf::from(&first_arg);
+    let optimized = args.get_bool("optimize");
 
     // Dynamically linking crates (experimental!)
     if args.get_bool("crate-path") || args.get_bool("compile") {
@@ -163,16 +189,13 @@ fn main() {
             println!("{}",crate_utils::cache_path(&crate_name).display());
         } else {
             println!("building crate '{}' at {}",crate_name, crate_path.display());
-            compile_crate(&args, &Default::default(), &crate_name, &crate_path, None);
+            let state = State::dll(optimized);
+            compile_crate(&args, &state, &crate_name, &crate_path, None);
         }
         return;
     }
 
-    let state = State {
-        build_static: args.get_bool("static"),
-        optimize: args.get_bool("optimize"),
-        exe: true,
-    };
+    let state = State::exe(args.get_bool("static"),optimized);
 
     // we'll pass rest of arguments to program
     let program_args = args.get_strings("args");
@@ -479,6 +502,13 @@ fn get_cache(state: &State) -> PathBuf {
         home.push(DYNAMIC_CACHE);
     };
     home
+}
+
+fn clean_cache() {
+    let debug = State::exe(true,false);
+    crate_utils::remove_duplicate_cache_deps(&get_cache(&debug));
+    let release = State::exe(true,true);
+    crate_utils::remove_duplicate_cache_deps(&get_cache(&release));
 }
 
 fn add_aliases(aliases: Vec<String>) {
