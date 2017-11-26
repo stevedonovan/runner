@@ -3,8 +3,8 @@ use super::es;
 use std::fs;
 use es::traits::*;
 use std::env;
-use std::path;
-
+use std::path::{Path,PathBuf};
+use std::collections::HashMap;
 
 lazy_static! {
     pub static ref RUSTUP_LIB: String = es::shell("rustc --print sysroot") + "/lib";
@@ -15,7 +15,7 @@ pub fn proper_crate_name(crate_name: &str) -> String {
     crate_name.replace('-',"_")
 }
 
-pub fn path_file_name(p: &path::Path) -> String {
+pub fn path_file_name(p: &Path) -> String {
     if let Some(file_name) = p.file_name() {
         file_name.to_string_lossy().to_string()
     } else
@@ -32,7 +32,7 @@ fn semver_i (s: &str) -> u64 {
     (((v[0] << 8) + v[1]) << 8) + v[2]
 }
 
-pub fn cargo_home() -> path::PathBuf {
+pub fn cargo_home() -> PathBuf {
     if let Ok(home) = env::var("CARGO_HOME") { // set in cargo runs
         home.into()
     } else {
@@ -40,9 +40,9 @@ pub fn cargo_home() -> path::PathBuf {
     }
 }
 
-pub fn cache_path(crate_name: &str) -> path::PathBuf {
+pub fn cache_path(crate_name: &str) -> PathBuf {
     let home = cargo_home();
-    let crate_root = path::PathBuf::from(home.join("registry/src"));
+    let crate_root = PathBuf::from(home.join("registry/src"));
     // actual crate source is in some fairly arbitrary subdirectory of this
     let mut crate_dir = crate_root.clone();
     crate_dir.push(es::files(&crate_root).next().or_die("no crate cache directory"));
@@ -64,7 +64,7 @@ pub fn cache_path(crate_name: &str) -> path::PathBuf {
 
 // Very hacky stuff - we want the ACTUAL crate name, not the project name
 // So look just past [package] and scrape the name...
-fn crate_name(cargo_toml: &path::Path) -> String {
+fn crate_name(cargo_toml: &Path) -> String {
     let name_line = es::lines(es::open(cargo_toml))
         .skip_while(|line| line.trim() != "[package]")
         .skip(1)
@@ -75,7 +75,7 @@ fn crate_name(cargo_toml: &path::Path) -> String {
 
 }
 
-pub fn crate_path(file: &path::Path, first_arg: &str) -> Result<(path::PathBuf,String),String> {
+pub fn crate_path(file: &Path, first_arg: &str) -> Result<(PathBuf,String),String> {
     if file.exists() {
         if file.is_dir() { // assumed to be Cargo directory
             let cargo_toml = file.join("Cargo.toml");
@@ -97,7 +97,7 @@ pub fn crate_path(file: &path::Path, first_arg: &str) -> Result<(path::PathBuf,S
     }
 }
 
-pub fn full_crate_name(deps: &path::Path, crate_name: &str) -> Option<String> {
+pub fn full_crate_name(deps: &Path, crate_name: &str) -> Option<String> {
     let mut res = Vec::new();
     let patt = format!("lib{}-",crate_name);
     for entry in fs::read_dir(deps).or_die("cannot access dependencies dir") {
@@ -114,3 +114,51 @@ pub fn full_crate_name(deps: &path::Path, crate_name: &str) -> Option<String> {
     }
     res.pop()
 }
+
+pub type Crates = HashMap<String,Vec<PathBuf>>;
+
+pub fn get_cache_deps(deps: &Path) ->  Crates {
+    let mut res: Crates = HashMap::new();
+    for entry in fs::read_dir(deps).or_die("cannot access dependencies dir") {
+        let entry = entry.or_die("cannot access deps entry");
+        let path = entry.path();
+        if let Some(f) = path.file_name() {
+            let rlib = f.to_string_lossy();
+            // pull out the crate name
+            if let Some(idx) = rlib.rfind('-') {
+                let name = &rlib[3..idx];
+                let mut v = res.entry(name.into())
+                    .or_insert_with(|| Vec::new());
+                v.push(path.clone());
+            }
+        }
+    }
+    res
+}
+
+pub fn remove_duplicates(crates: Crates) {
+    for (name,paths) in crates {
+        if paths.len() > 1 {
+            // Sort the paths in ascending time of modification
+            let mut mpaths: Vec<_> = paths.into_iter()
+                .map(|p| {
+                    let time = p.metadata().unwrap().modified().unwrap();
+                    (p,time)
+                }).collect();
+            mpaths.sort_by(|a,b| a.1.cmp(&b.1));
+
+            // ignore the latest, and delete the rest
+            mpaths.pop();
+            println!("crate {} removing {} items",name,mpaths.len());
+            for (p,_) in mpaths {
+                fs::remove_file(&p).expect("can't remove rlib");
+            }
+        }
+    }
+}
+
+pub fn remove_duplicate_cache_deps(deps: &Path) {
+    let deps = get_cache_deps(deps);
+    remove_duplicates(deps);
+}
+
