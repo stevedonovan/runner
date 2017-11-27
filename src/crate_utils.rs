@@ -12,8 +12,8 @@ lazy_static! {
 }
 
 pub fn shell(cmd: &str) -> String {
-    let o = ::std::process::Command::new("sh")
-     .arg("-c")
+    let o = ::std::process::Command::new(if cfg!(windows) {"cmd.exe"} else {"sh"})
+     .arg(if cfg!(windows) {"/c"} else {"-c"})
      .arg(&format!("{} 2>&1",cmd))
      .output()
      .expect("failed to execute shell");
