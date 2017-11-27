@@ -7,8 +7,17 @@ use std::path::{Path,PathBuf};
 use std::collections::HashMap;
 
 lazy_static! {
-    pub static ref RUSTUP_LIB: String = es::shell("rustc --print sysroot") + "/lib";
-    pub static ref UNSTABLE: bool = RUSTUP_LIB.find("stable-").is_none();
+    pub static ref RUSTUP_LIB: String = shell("rustc --print sysroot") + "/lib";
+    pub static ref UNSTABLE: bool = RUSTUP_LIB.find("stable").is_none();
+}
+
+pub fn shell(cmd: &str) -> String {
+    let o = ::std::process::Command::new("sh")
+     .arg("-c")
+     .arg(&format!("{} 2>&1",cmd))
+     .output()
+     .expect("failed to execute shell");
+    String::from_utf8(o.stdout).expect("not UTF-8 output").trim_right_matches('\n').to_string()
 }
 
 pub fn proper_crate_name(crate_name: &str) -> String {
@@ -127,7 +136,7 @@ pub fn get_cache_deps(deps: &Path) ->  Crates {
             // pull out the crate name
             if let Some(idx) = rlib.rfind('-') {
                 let name = &rlib[3..idx];
-                let mut v = res.entry(name.into())
+                let v = res.entry(name.into())
                     .or_insert_with(|| Vec::new());
                 v.push(path.clone());
             }
