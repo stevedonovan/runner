@@ -89,7 +89,7 @@ const KITCHEN_SINK: &str = "
     serde_json json
     walkdir 
     simple-error error-chain
-    toml nom
+    nom
     rayon pipeliner
     reqwest
     typed-arena 
