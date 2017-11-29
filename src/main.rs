@@ -60,7 +60,7 @@ Compile and run small Rust snippets
 
 // this will be initially written to ~/.cargo/.runner/prelude and
 // can then be edited.
-const PRELUDE: &'static str = "
+const PRELUDE: &str = "
 #![allow(unused_imports)]
 #![allow(unused_variables)]
 #![allow(dead_code)]
@@ -79,6 +79,29 @@ macro_rules! debug {
     }
 }
 ";
+
+// a fairly arbitrary set of crates to start the ball rolling
+// cf. https://github.com/brson/stdx
+const KITCHEN_SINK: &str = "
+    time
+    regex
+    toml
+    serde_json json
+    walkdir 
+    simple-error error-chain
+    toml nom
+    rayon pipeliner
+    reqwest
+    typed-arena 
+";
+
+fn kitchen_sink(crates: Vec<String>) -> Vec<String> {
+    if crates.len() == 1 && crates[0] == "kitchen-sink" {
+        KITCHEN_SINK.split_whitespace().map(|s| s.into()).collect()
+    } else {
+        crates
+    }
+}
 
 struct State {
     build_static: bool,
@@ -105,7 +128,7 @@ impl State {
 
 }
 
-fn main() {
+fn main() {    
     let args = lapp::parse_args(USAGE);
     let prelude = get_prelude();
 
@@ -124,12 +147,12 @@ fn main() {
     // Static Cache Management
     let crates = args.get_strings("create");
     if crates.len() > 0 {
-        create_static_cache(&crates,true);
+        create_static_cache(&kitchen_sink(crates),true);
         return;
     }
     let crates = args.get_strings("add");
     if crates.len() > 0 {
-        create_static_cache(&crates,false);
+        create_static_cache(&kitchen_sink(crates),false);
         return;
     }
 
