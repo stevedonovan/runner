@@ -145,7 +145,7 @@ pub fn get_cache_deps(deps: &Path) ->  Crates {
     res
 }
 
-pub fn remove_duplicates(crates: Crates) {
+pub fn remove_duplicates(crates: Crates, do_clean: bool) {
     for (name,paths) in crates {
         if paths.len() > 1 {
             // Sort the paths in ascending time of modification
@@ -157,17 +157,51 @@ pub fn remove_duplicates(crates: Crates) {
             mpaths.sort_by(|a,b| a.1.cmp(&b.1));
 
             // ignore the latest, and delete the rest
-            mpaths.pop();
-            println!("crate {} removing {} items",name,mpaths.len());
-            for (p,_) in mpaths {
-                fs::remove_file(&p).expect("can't remove rlib");
+
+            if do_clean {
+                mpaths.pop();
+                println!("crate {} removing {} items",name,mpaths.len());
+                for (p,_) in mpaths {
+                    fs::remove_file(&p).expect("can't remove rlib");
+                }
+            } else {
+                println!("crate {} has {} items",name,mpaths.len());
+                for (p,_) in mpaths {
+                    println!("{:?}",p);
+                }
             }
         }
     }
 }
 
-pub fn remove_duplicate_cache_deps(deps: &Path) {
+pub fn remove_duplicate_cache_deps(deps: &Path, do_clean: bool) {
     let deps = get_cache_deps(deps);
-    remove_duplicates(deps);
+    remove_duplicates(deps,do_clean);
 }
 
+fn inside_quotes(s: &str) -> String {
+    s.chars()
+        .skip_while(|&c| c != '"').skip(1)
+        .take_while(|&c| c != '"').collect()
+}
+
+
+pub fn show_deps(stat_cache: &Path) {
+    let cargo_lock = stat_cache.join("Cargo.lock");
+
+    let f = es::open(cargo_lock);
+    let res = es::lines(f)
+        .skip_while(|line| ! line.starts_with("dependencies"))
+        .skip(1)
+        .take_while(|line| ! line.starts_with(']'))
+        .map(|line| {
+           let line = inside_quotes(&line);
+           let toks = line.split_whitespace().take(2).to_vec();
+           (toks[0].to_string(), toks[1].to_string())
+         })
+        .to_vec();
+
+    for (name,vs) in res {
+        println!("{} - {}",name,vs);
+    }
+}

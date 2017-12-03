@@ -42,6 +42,7 @@ Compile and run small Rust snippets
   --edit  edit the static cache Cargo.toml
   --build rebuild the static cache
   --cleanup clean out stale rlibs from cache
+  --deps current crates and their versions in cache
   --doc  display documentation (any argument will be specific crate name)
   --edit-prelude edit the default prelude for snippets
   --alias (string...) crate aliases in form alias=crate_name (used with -x)
@@ -87,12 +88,12 @@ const KITCHEN_SINK: &str = "
     regex
     toml
     serde_json json
-    walkdir 
+    walkdir
     simple-error error-chain
     nom
     rayon pipeliner
     reqwest
-    typed-arena 
+    typed-arena
 ";
 
 fn kitchen_sink(crates: Vec<String>) -> Vec<String> {
@@ -128,7 +129,7 @@ impl State {
 
 }
 
-fn main() {    
+fn main() {
     let args = lapp::parse_args(USAGE);
     let prelude = get_prelude();
 
@@ -158,24 +159,24 @@ fn main() {
 
     // operations on the static cache
     let b = |p| args.get_bool(p);
-    let (edit_toml, build, doc, update, cleanup) =
-        (b("edit"), b("build"), b("doc"), b("update"), b("cleanup"));
+    let (edit_toml, build, doc, update, cleanup, deps) =
+        (b("edit"), b("build"), b("doc"), b("update"), b("cleanup"), b("deps"));
 
-    if edit_toml || build || doc || update || cleanup {
+    if edit_toml || build || doc || update || cleanup || deps {
         let maybe_argument = args.get_string_result("program");
         let static_cache = static_cache_dir_check(&args);
         if build || update {
             env::set_current_dir(&static_cache).or_die("static cache wasn't a directory?");
             if build {
                 build_static_cache();
-                clean_cache();
+                clean_cache(false);
             } else {
                 if let Ok(package) = maybe_argument {
                     cargo(&["update","--package",&package]);
                 } else {
                     cargo(&["update"]);
                 }
-                clean_cache();
+                //clean_cache();
                 return;
             }
         } else
@@ -191,7 +192,10 @@ fn main() {
             open(&docs);
         } else
         if cleanup {
-            clean_cache();
+            clean_cache(true);
+        } else
+        if deps {
+            crate_utils::show_deps(&static_cache);
         } else { // must be edit_toml
             let toml = static_cache.join("Cargo.toml");
             edit(&toml);
@@ -324,7 +328,8 @@ fn main() {
     }
     if args.get_bool("compile-only") {
         let file_name = rust_file.file_name().or_die("no file name?");
-        let here = PathBuf::from(".").join(file_name).with_extension(EXE_SUFFIX);
+        let home = crate_utils::cargo_home().join("bin");
+        let here = home.join(file_name).with_extension(EXE_SUFFIX);
         println!("Success. copying {:?} to {:?}",program,here);
         fs::copy(&program,&here).or_die("cannot copy program");
         return;
@@ -486,7 +491,11 @@ fn create_static_cache(crates: &[String], please_create: bool) {
         let mut deps = fs::OpenOptions::new().append(true)
             .open("Cargo.toml").or_die("could not append to Cargo.toml");
         for c in crates {
-            write!(deps,"{}=\"*\"\n",c).or_die("could not modify Cargo.toml");
+            if let None = c.find('=') {
+                write!(deps,"{}=\"*\"\n",c)
+            } else {
+                write!(deps,"{}\n",c)
+            }.or_die("could not modify Cargo.toml");
         }
     }
     if ! build_static_cache() {
@@ -528,11 +537,11 @@ fn get_cache(state: &State) -> PathBuf {
     home
 }
 
-fn clean_cache() {
+fn clean_cache(do_clean: bool) {
     let debug = State::exe(true,false);
-    crate_utils::remove_duplicate_cache_deps(&get_cache(&debug));
+    crate_utils::remove_duplicate_cache_deps(&get_cache(&debug),do_clean);
     let release = State::exe(true,true);
-    crate_utils::remove_duplicate_cache_deps(&get_cache(&release));
+    crate_utils::remove_duplicate_cache_deps(&get_cache(&release),do_clean);
 }
 
 fn add_aliases(aliases: Vec<String>) {
