@@ -4,6 +4,9 @@
 extern crate easy_shortcuts as es;
 extern crate lapp;
 #[macro_use] extern crate lazy_static;
+extern crate semver;
+
+
 use es::traits::*;
 use std::process;
 use std::env;
@@ -15,12 +18,15 @@ use std::io::Write;
 mod crate_utils;
 mod platform;
 mod strutil;
+mod meta;
 
 use std::env::consts::{EXE_SUFFIX,DLL_SUFFIX,DLL_PREFIX};
 
 use platform::{open,edit};
 
 use crate_utils::{RUSTUP_LIB, UNSTABLE};
+
+const VERSION: &str = "0.3.1";
 
 const USAGE: &str = "
 Compile and run small Rust snippets
@@ -42,7 +48,7 @@ Compile and run small Rust snippets
   --edit  edit the static cache Cargo.toml
   --build rebuild the static cache
   --cleanup clean out stale rlibs from cache
-  --deps current crates and their versions in cache
+  --crates current crates and their versions in cache
   --doc  display documentation (any argument will be specific crate name)
   --edit-prelude edit the default prelude for snippets
   --alias (string...) crate aliases in form alias=crate_name (used with -x)
@@ -50,10 +56,14 @@ Compile and run small Rust snippets
   Dynamic compilation:
   -P, --crate-path show path of crate source in Cargo cache
   -C, --compile  compile crate dynamically (limited)
+  -L, --link (string) path for extra libraries
   --cfg... (string) pass configuration variables to rustc
   --features (string...) enable features in compilation
   --libc  link dynamically against libc (special case)
   (--extern is used to explicitly link in a crate by name)
+
+  -v, --verbose describe what's happening
+  -V, --version version of runner
 
   <program> (string) Rust program, snippet or expression
   <args> (string...) arguments to pass to program
@@ -132,6 +142,14 @@ impl State {
 fn main() {
     let args = lapp::parse_args(USAGE);
     let prelude = get_prelude();
+    let b = |p| args.get_bool(p);
+
+    if b("version") {
+        println!("runner {}",VERSION);
+        return;
+    }
+    let verbose = b("verbose");
+
 
     let aliases = args.get_strings("alias");
     if aliases.len() > 0 {
@@ -139,7 +157,7 @@ fn main() {
         return;
     }
 
-    if args.get_bool("edit-prelude") {
+    if b("edit-prelude") {
         let rdir = runner_directory().join("prelude");
         edit(&rdir);
         return;
@@ -158,25 +176,22 @@ fn main() {
     }
 
     // operations on the static cache
-    let b = |p| args.get_bool(p);
-    let (edit_toml, build, doc, update, cleanup, deps) =
-        (b("edit"), b("build"), b("doc"), b("update"), b("cleanup"), b("deps"));
+    let (edit_toml, build, doc, update, cleanup, crates) =
+        (b("edit"), b("build"), b("doc"), b("update"), b("cleanup"), b("crates"));
 
-    if edit_toml || build || doc || update || cleanup || deps {
+    if edit_toml || build || doc || update || cleanup || crates {
         let maybe_argument = args.get_string_result("program");
-        let static_cache = static_cache_dir_check(&args);
+        let static_cache = static_cache_dir_check();
         if build || update {
             env::set_current_dir(&static_cache).or_die("static cache wasn't a directory?");
             if build {
                 build_static_cache();
-                clean_cache(false);
             } else {
                 if let Ok(package) = maybe_argument {
                     cargo(&["update","--package",&package]);
                 } else {
                     cargo(&["update"]);
                 }
-                //clean_cache();
                 return;
             }
         } else
@@ -192,10 +207,11 @@ fn main() {
             open(&docs);
         } else
         if cleanup {
-            clean_cache(true);
+            args.quit("cleanup not implemented yet");
         } else
-        if deps {
-            crate_utils::show_deps(&static_cache);
+        if crates {
+            let mut m = meta::Meta::new_from_file(&static_cache);
+            m.dump_crates(maybe_argument.ok());
         } else { // must be edit_toml
             let toml = static_cache.join("Cargo.toml");
             edit(&toml);
@@ -208,46 +224,36 @@ fn main() {
     let optimized = args.get_bool("optimize");
 
     // Dynamically linking crates (experimental!)
-    if args.get_bool("crate-path") || args.get_bool("compile") {
+    if b("crate-path") || b("compile") {
         let (crate_path,crate_name) = match crate_utils::crate_path(&file,&first_arg) {
             Ok(t) => t,
             Err(s) => args.quit(&s)
         };
-        if args.get_bool("crate-path") {
+        if b("crate-path") {
             println!("{}",crate_utils::cache_path(&crate_name).display());
         } else {
             println!("building crate '{}' at {}",crate_name, crate_path.display());
             let state = State::dll(optimized);
-            compile_crate(&args, &state, &crate_name, &crate_path, None);
+            compile_crate(&args, &state, &crate_name, &crate_path, None,  Vec::new());
         }
         return;
     }
 
-    let state = State::exe(args.get_bool("static"),optimized);
+    let state = State::exe(b("static"),optimized);
 
     // we'll pass rest of arguments to program
     let program_args = args.get_strings("args");
 
-    // Windows shell quoting is a mess, so we make single quotes
-    // become double quotes in expressions
-    fn quote(s: String) -> String {
-        if cfg!(windows) {
-            s.replace("\'","\"")
-        } else {
-            s
-        }
-    }
-
     let mut expression = true;
-    let mut code = if args.get_bool("expression") {
-        // Evaluating an expression: just print it out.
+    let mut code = if b("expression") {
+        // Evaluating an expression: just debug print it out.
         format!("println!(\"{{:?}}\",{});", quote(first_arg))
     } else
-    if args.get_bool("iterator") {
+    if b("iterator") {
         // The expression is anything that implements IntoIterator
         format!("for val in {} {{\n println!(\"{{:?}}\",val);\n}}", quote(first_arg))
     } else
-    if args.get_bool("lines") {
+    if b("lines") {
         // The variable 'line' is available to an expression, evaluated for each line in stdin
         // But if the expression ends with '}' then don't dump out this value!
         let first_arg = quote(first_arg);
@@ -275,9 +281,9 @@ fn main() {
             |c| c.is_alphanumeric() || c == '_',
             |s| {
                 let text = if let Ok(num) = s.parse::<usize>() {
-                    program_args.get(num-1).or_die(&format!("arg {} not found",num)).clone()
+                    program_args.get(num-1).or_then_die(|_| format!("arg {} not found",num)).clone()
                 } else {
-                    env::var(s).or_die("$VAR not found")
+                    env::var(s).or_then_die(|_| format!("$VAR {} not found",s))
                 };
                 format!("{:?}",text)
             }
@@ -286,6 +292,7 @@ fn main() {
 
     // ALL executables go into the Runner bin directory...
     let mut bin = runner_directory().join("bin");
+    let mut externs = Vec::new();
 
     // proper Rust programs are accepted (this is a bit rough)
     let proper = code.find("fn main").is_some();
@@ -301,16 +308,19 @@ fn main() {
         if ! extra.is_empty() {
             extra.push(';');
         }
-        let maybe_prelude = if args.get_bool("no-prelude") {
+        let maybe_prelude = if b("no-prelude") {
             "".into()
         } else {
             prelude
         };
-        code = massage_snippet(code, maybe_prelude, extern_crates, wild_crates, extra);
+        let (massaged_code, deduced_externs)
+            = massage_snippet(code, maybe_prelude, extern_crates, wild_crates, extra);
+        code = massaged_code;
+        externs = deduced_externs;
         if ! expression {
             bin.push(&file);
             bin.set_extension("rs");
-        } else {
+        } else { // we make up a name...
             bin.push("tmp.rs");
         }
         es::write_all(&bin,&code);
@@ -323,14 +333,18 @@ fn main() {
         (file, program)
     };
 
-    if ! compile_crate(&args,&state,"",&rust_file,Some(&program)) {
+    if ! compile_crate(&args,&state,"",&rust_file,Some(&program), externs) {
         return;
     }
-    if args.get_bool("compile-only") {
+    if verbose {
+        println!("compiled {:?} successfully",rust_file);
+    }
+
+    if b("compile-only") {
         let file_name = rust_file.file_name().or_die("no file name?");
         let home = crate_utils::cargo_home().join("bin");
         let here = home.join(file_name).with_extension(EXE_SUFFIX);
-        println!("Success. copying {:?} to {:?}",program,here);
+        println!("Copying {:?} to {:?}",program,here);
         fs::copy(&program,&here).or_die("cannot copy program");
         return;
     }
@@ -353,7 +367,7 @@ fn main() {
     }
     builder.args(&program_args)
         .status()
-        .or_die(&format!("can't run program {:?}",program));
+        .or_then_die(|e| format!("can't run program {:?}: {}",program,e));
 }
 
 // handle two useful cases:
@@ -361,10 +375,15 @@ fn main() {
 // - compile a program, given a program
 fn compile_crate(args: &lapp::Args, state: &State,
     crate_name: &str, crate_path: &Path,
-    output_program: Option<&Path>) -> bool
+    output_program: Option<&Path>, mut extern_crates: Vec<String>) -> bool
 {
+    let verbose = args.get_bool("verbose");
+    let debug = ! state.optimize;
+
     // implicit linking works fine, until it doesn't
-    let mut extern_crates = args.get_strings("extern");
+    extern_crates.extend(args.get_strings("extern"));
+    extern_crates.sort();
+    extern_crates.dedup();
     // libc is such a special case
     if args.get_bool("libc") {
         extern_crates.push("libc".into());
@@ -377,6 +396,10 @@ fn compile_crate(args: &lapp::Args, state: &State,
     let mut builder = process::Command::new("rustc");
     if ! state.build_static { // stripped-down dynamic link
         builder.args(&["-C","prefer-dynamic"]).args(&["-C","debuginfo=0"]);
+        if let Ok(link) = args.get_string_result("link") {
+            if verbose { println!("linking against {}",link); }
+            builder.arg("-L").arg(&link);
+        }
     } else { // static build
         builder.arg(if state.optimize {"-O"} else {"-g"});
         if state.optimize {
@@ -398,29 +421,42 @@ fn compile_crate(args: &lapp::Args, state: &State,
     }
 
     // explicit --extern references require special treatment for
-    // static builds, since the libnames include the SHA.
-    // So we look for .rlibs matching the crate explicitly, and
-    // currently randomly pick one if multiple (which may happen
-    // with transitive dependencies)
+    // static builds, since the libnames include a hash.
+    // So we look for the latest crate of this name
 
-    for c in extern_crates {
-        let (full_name,prefix) = if state.build_static {
-            (
-            crate_utils::full_crate_name(&cache,&c).or_die(&format!("no such crate '{}",c)),
-            "lib"
-            )
-        } else {
-            (c.clone(),DLL_PREFIX)
-        };
-        let mut full_path = PathBuf::from(&cache);
-        full_path.push(format!("{}{}{}",prefix,full_name,if state.build_static {".rlib"} else {DLL_SUFFIX}));
+    let extern_crates: Vec<(String,String)> =
+    if state.build_static && extern_crates.len() > 0 {
+        let m = meta::Meta::new_from_file(&static_cache_dir());
+        extern_crates.into_iter().map(|c|
+            (m.get_full_crate_name(&c,debug).or_then_die(|_| format!("no such crate '{}",c)),c)
+        ).collect()
+    } else {
+        extern_crates.into_iter().map(|c|
+            (format!("{}{}{}",DLL_PREFIX,c,DLL_SUFFIX),c)
+        ).collect()
+    };
+
+    for (name,c) in extern_crates {
+        let full_path = PathBuf::from(&cache).join(&name);
         let ext = format!("{}={}",c,full_path.display());
+        if verbose {
+            println!("extern {}",ext);
+        }
         builder.arg("--extern").arg(&ext);
     }
     builder.arg(crate_path);
     builder.status().or_die("can't run rustc").success()
 }
 
+// Windows shell quoting is a mess, so we make single quotes
+// become double quotes in expressions
+fn quote(s: String) -> String {
+    if cfg!(windows) {
+        s.replace("\'","\"")
+    } else {
+        s
+    }
+}
 
 fn runner_directory() -> PathBuf {
     let mut runner = crate_utils::cargo_home().join(".runner");
@@ -438,6 +474,43 @@ fn cargo(args: &[&str]) -> bool {
     res.success()
 }
 
+fn cargo_build(release: bool) -> Option<String> {
+    use process::Stdio;
+    use std::io::BufReader;
+    use std::io::prelude::*;
+
+    let mut c = process::Command::new("cargo");
+    c.arg("build");
+    if release {
+        c.arg("--release");
+    }
+    c.stdout(Stdio::piped());
+    c.arg("--message-format").arg("json");
+
+    let mut res = c.spawn().or_die("can't run cargo");
+
+    // collect all JSON records, and let the rest
+    // pass through...
+    let inb = BufReader::new(res.stdout.take().unwrap());
+    let mut out = String::new();
+    for line in inb.lines() {
+        if let Ok(line) = line {
+            if line.starts_with('{') {
+                out += &line;
+                out.push('\n');
+            } else {
+                println!("{}",line);
+            }
+        }
+    }
+
+    if res.wait().or_die("cargo build error").success() {
+        Some(out)
+    } else {
+        None
+    }
+}
+
 const STATIC_CACHE: &str = "static-cache";
 const DYNAMIC_CACHE: &str = "dy-cache";
 
@@ -445,19 +518,29 @@ fn static_cache_dir() -> PathBuf {
     runner_directory().join(STATIC_CACHE)
 }
 
-fn static_cache_dir_check(args: &lapp::Args) -> PathBuf {
+fn static_cache_dir_check() -> PathBuf {
     let static_cache = static_cache_dir();
     if ! static_cache.exists() {
-        args.quit("please build static cache with --create first");
+        es::quit("please build static cache with --create first");
     }
     static_cache
 }
 
 fn build_static_cache() -> bool {
-    cargo(&["build"]) &&
-    cargo(&["build","--release"]) &&
+    use meta::*;
+    let mut m = Meta::new();
+    match cargo_build(false) {
+        None => return false,
+        Some(s) => m.debug(s)
+    }
+    match cargo_build(true) {
+        None => return false,
+        Some(s) => m.release(s)
+    }
+    m.update(&static_cache_dir());
     cargo(&["doc"])
 }
+
 
 fn create_static_cache(crates: &[String], please_create: bool) {
     use std::io::prelude::*;
@@ -537,13 +620,6 @@ fn get_cache(state: &State) -> PathBuf {
     home
 }
 
-fn clean_cache(do_clean: bool) {
-    let debug = State::exe(true,false);
-    crate_utils::remove_duplicate_cache_deps(&get_cache(&debug),do_clean);
-    let release = State::exe(true,true);
-    crate_utils::remove_duplicate_cache_deps(&get_cache(&release),do_clean);
-}
-
 fn add_aliases(aliases: Vec<String>) {
     if aliases.len() == 0 { return; }
     let alias_file = runner_directory().join("alias");
@@ -566,8 +642,9 @@ fn get_aliases() -> HashMap<String,String> {
       .to_map()
 }
 
-
-fn massage_snippet(code: String, prelude: String, extern_crates: Vec<String>, wild_crates: Vec<String>, body_prelude: String) -> String {
+fn massage_snippet(code: String, prelude: String,
+        extern_crates: Vec<String>, wild_crates: Vec<String>, body_prelude: String) -> (String,Vec<String>) {
+    use strutil::{after,word_after};
 
     fn indent_line(line: &str) -> String {
         format!("    {}\n",line)
@@ -576,19 +653,21 @@ fn massage_snippet(code: String, prelude: String, extern_crates: Vec<String>, wi
     let mut prefix = prelude;
     let mut crate_begin = String::new();
     let mut body = String::new();
+    let mut deduced_externs = Vec::new();
+
     body += &body_prelude;
     {
         if extern_crates.len() > 0 {
             let aliases = get_aliases();
-            for c in extern_crates {
-                prefix += &if let Some(aliased) = aliases.get(&c) {
-                    format!("extern crate {} as {};",aliased,c)
+            for c in &extern_crates {
+                prefix += &if let Some(aliased) = aliases.get(c) {
+                    format!("extern crate {} as {};\n",aliased,c)
                 } else {
-                    format!("extern crate {};",c)
+                    format!("extern crate {};\n",c)
                 };
             }
             for c in wild_crates {
-                prefix += &format!("use {}::*;",c);
+                prefix += &format!("use {}::*;\n",c);
             }
         }
         let mut lines = code.lines();
@@ -604,11 +683,19 @@ fn massage_snippet(code: String, prelude: String, extern_crates: Vec<String>, wi
             // crate import, use should go at the top.
             // Particularly need to force crate-level attributes to the top
             // These must not be in the `run` function we're generating
-            if  line.starts_with("#[macro_use") ||
-                line.starts_with("extern ") ||
-                line.starts_with("use ") {
-                    prefix += line;
-                    prefix.push('\n');
+            if let Some(rest) = after(line,"#[macro_use") {
+                if let Some(crate_name) = word_after(rest,"extern crate ") {
+                    deduced_externs.push(crate_name);
+                }
+                prefix += line;
+                prefix.push('\n');
+            } else
+            if line.starts_with("extern ") || line.starts_with("use ") {
+                if let Some(crate_name) = word_after(line,"extern crate ") {
+                    deduced_externs.push(crate_name);
+                }
+                prefix += line;
+                prefix.push('\n');
             } else
             if line.starts_with("#![") {
                 // inner attributes really need to be at the top of the file
@@ -624,7 +711,11 @@ fn massage_snippet(code: String, prelude: String, extern_crates: Vec<String>, wi
         body.extend(lines.map(indent_line));
     }
 
-    format!("{}
+    deduced_externs.extend(extern_crates);
+    deduced_externs.sort();
+    deduced_externs.dedup();
+
+    let massaged_code = format!("{}
 {}
 
 fn run() -> std::result::Result<(),Box<std::error::Error>> {{
@@ -635,7 +726,9 @@ fn main() {{
         println!(\"error: {{:?}}\",e);
     }}
 }}
-",crate_begin,prefix,body)
+",crate_begin,prefix,body);
+
+    (massaged_code, deduced_externs)
 
 }
 
