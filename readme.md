@@ -210,7 +210,7 @@ runner -C utf8-ranges
 runner -C unreachable
 runner -C aho-corasick
 runner -C lazy_static
-runner -C thread_local
+runner -C --libc thread_local
 runner -C regex-syntax
 runner -C regex
 ```
@@ -452,6 +452,4 @@ $ runner -s --no-prelude --extern filetime filetime.rs
 ```
 
 Or if you're in a hurry: `runner -sNx filetime filetime.rs`.
-
-
 
