@@ -14,10 +14,12 @@ keywords = ["compiler-runner","scripting","snippets"]
 license = "MIT"
 
 [dependencies]
-easy-shortcuts = "0.2"
-lapp = "0.2.2"
+easy-shortcuts = "0.3"
+lapp = "0.3"
 open = "1.2"
 lazy_static = "0.2"
+semver = "0.9"
+
 
 
 
