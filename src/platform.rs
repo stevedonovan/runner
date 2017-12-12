@@ -1,3 +1,6 @@
+// takes basic functionality from open crate
+// and fills in the important _edit_ case, respecting POSIX
+// and some Windows/MacOS limitations.
 use std::path::Path;
 use std::env;
 use std::process::Command;

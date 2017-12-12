@@ -1,3 +1,6 @@
+// parse output of cargo build --message-format json,
+// caching the results. Can get the exact name of the .rlib
+// for the latest available version in the static cache.
 use std::path::{Path,PathBuf};
 use std::fs::File;
 use std::io::Write;
