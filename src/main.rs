@@ -40,6 +40,7 @@ Compile and run small Rust snippets
   -p, --prepend (default '') put this statement in body (useful for -i etc)
   -N, --no-prelude do not include runner prelude
   -c, --compile-only  will not run program and copies it into current dir
+  -r, --run  don't compile, only re-run
 
   Cache Management:
   --create (string...) initialize the static cache with crates
@@ -149,6 +150,10 @@ fn main() {
         return;
     }
     let verbose = b("verbose");
+
+    if b("run") && b("compile-only") {
+        args.quit("--run and compile-only make no sense together");
+    }
 
 
     let aliases = args.get_strings("alias");
@@ -333,11 +338,17 @@ fn main() {
         (file, program)
     };
 
-    if ! compile_crate(&args,&state,"",&rust_file,Some(&program), externs) {
-        return;
-    }
-    if verbose {
-        println!("compiled {:?} successfully",rust_file);
+    if b("run") {
+        if ! program.exists() {
+            args.quit(&format!("program {:?} does not exist",program));
+        }
+    } else {
+        if ! compile_crate(&args,&state,"",&rust_file,Some(&program), externs) {
+            return;
+        }
+        if verbose {
+            println!("compiled {:?} successfully",rust_file);
+        }
     }
 
     if b("compile-only") {
