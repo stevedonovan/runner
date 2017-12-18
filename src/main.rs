@@ -6,7 +6,6 @@ extern crate lapp;
 #[macro_use] extern crate lazy_static;
 extern crate semver;
 
-
 use es::traits::*;
 use std::process;
 use std::env;
@@ -26,7 +25,7 @@ use platform::{open,edit};
 
 use crate_utils::{RUSTUP_LIB, UNSTABLE};
 
-const VERSION: &str = "0.3.1";
+const VERSION: &str = "0.3.2";
 
 const USAGE: &str = "
 Compile and run small Rust snippets
