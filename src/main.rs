@@ -144,6 +144,13 @@ fn main() {
     let prelude = get_prelude();
     let b = |p| args.get_bool(p);
 
+    // weirdly, with_extension requires suffix without the dot
+    let exe_suffix = if EXE_SUFFIX.len() > 0 {
+        &EXE_SUFFIX[1..]
+    } else {
+        ""
+    };
+
     if b("version") {
         println!("runner {}",VERSION);
         return;
@@ -368,12 +375,12 @@ fn main() {
             bin.push("tmp.rs");
         }
         es::write_all(&bin,&code);
-        let program = bin.with_extension(EXE_SUFFIX);
+        let program = bin.with_extension(exe_suffix);
         (bin, program)
     } else {
         // the 'proper' case - use the file name part
         bin.push(file.file_name().unwrap());
-        let program = bin.with_extension(EXE_SUFFIX);
+        let program = bin.with_extension(exe_suffix);
         (file, program)
     };
 
@@ -393,12 +400,11 @@ fn main() {
     if b("compile-only") {
         let file_name = rust_file.file_name().or_die("no file name?");
         let home = crate_utils::cargo_home().join("bin");
-        let here = home.join(file_name).with_extension(EXE_SUFFIX);
+        let here = home.join(file_name).with_extension(exe_suffix);
         println!("Copying {:?} to {:?}",program,here);
         fs::copy(&program,&here).or_die("cannot copy program");
         return;
     }
-
 
     // Finally run the compiled program
     let cache = get_cache(&state);
