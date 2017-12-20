@@ -1,6 +1,6 @@
 [package]
 name = "runner"
-version = "0.3.1"
+version = "0.3.2"
 authors = ["steve donovan <steve.j.donovan@gmail.com>"]
 description = "utility for running Rust snippets"
 
@@ -19,6 +19,7 @@ lapp = "0.3"
 open = "1.2"
 lazy_static = "0.2"
 semver = "0.9"
+json = "0.11"
 
 [profile.release]
 lto = true

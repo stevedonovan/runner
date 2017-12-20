@@ -1,6 +1,7 @@
 // parse output of cargo build --message-format json,
 // caching the results. Can get the exact name of the .rlib
 // for the latest available version in the static cache.
+extern crate json;
 use std::path::{Path,PathBuf};
 use std::fs::File;
 use std::io::Write;
@@ -11,27 +12,34 @@ use super::crate_utils::proper_crate_name;
 
 use semver::Version;
 
-fn read_entry(txt: &str) -> Option<(&str,Version,&str,&str)> {
-    use strutil::*;
-    // features field
-    if let Some(s) = after(txt,"features\":[") {
-        let idx = s.find(']').unwrap();
-        let features = &s[0..idx];
+fn as_str(v: &json::JsonValue) -> &str {
+    v.as_str().unwrap()
+}
 
-        // filenames field _usually_ single path
-        let s = after(&s[idx..],"\"filenames\":[\"").unwrap();
-        let endq = s.find('"').unwrap();
-        let path = &s[0..endq];
-        let slashp = path.rfind('/').unwrap();
-        let filename = &path[slashp+1..];
-        let idx = filename.find('.').unwrap_or(filename.len()-1);
-        let ext = &filename[idx+1..];
-        if ! (ext == "" || ext == "exe") { // ignore build artifacts
-            // package_id has both name and version
-            let s = after(&s[endq+1..],"package_id\":\"").unwrap();
-            let (name,vs) = next_2(s.split_whitespace());
+fn read_entry(line: &str) -> Option<(String,String,Version,String,String,String)> {
+    use strutil::next_2;
+
+    if let Ok(doc) = json::parse(line) {
+        let features = doc["features"].members().map(as_str).join(' ');
+        let path = Path::new(as_str(&doc["filenames"][0]));
+
+        let filename = path.file_name().unwrap();
+        let ext = path.extension();
+        if ! (ext.is_none() || ext.unwrap() == "exe") { // ignore build artifacts
+            // package_id has version
+            let package_id = as_str(&doc["package_id"]).split_whitespace();
+            let (package,vs) = next_2(package_id);
+
+            // but look for _crate name_ in name field
+            let name = as_str(&doc["target"]["name"]);
+
+            // get the cached source path
+            let path = Path::new(as_str(&doc["target"]["src_path"]));
+
             let vs = Version::parse(vs).or_die("bad semver");
-            Some((name,vs,features,filename))
+            let filename = filename.to_str().or_die("filename not valid Unicode");
+            let src_path = path.to_str().or_die("cached path not valid Unicode");
+            Some((package.into(),name.into(),vs,features,filename.into(),src_path.into()))
         } else {
             None
         }
@@ -45,13 +53,14 @@ fn file_name(cache: &Path) -> PathBuf {
 }
 
 #[derive(Debug)]
-struct MetaEntry {
-    package: String,
-    crate_name: String,
-    version: Version,
-    features: String,
+pub struct MetaEntry {
+    pub package: String,
+    pub crate_name: String,
+    pub version: Version,
+    pub features: String,
     debug_name: String,
     release_name: String,
+    pub path: PathBuf,
 }
 
 pub struct Meta {
@@ -66,7 +75,20 @@ impl Meta {
         }
     }
 
+    pub fn exists(cache: &Path) -> bool {
+        file_name(cache).exists()
+    }
+
     pub fn new_from_file(cache: &Path) -> Meta {
+
+        fn opt_field(fields: &[&str], idx: usize) -> String {
+            if idx >= fields.len() {
+                ""
+            } else {
+                fields[idx]
+            }.into()
+        }
+
         let mut v = Vec::new();
         let meta_f = file_name(cache);
         for line in es::lines(es::open(&meta_f)) {
@@ -78,6 +100,7 @@ impl Meta {
                 features: parts[3].into(),
                 debug_name: parts[4].into(),
                 release_name: parts[5].into(),
+                path: PathBuf::from(opt_field(&parts,6)),
             });
         }
         Meta {
@@ -85,8 +108,10 @@ impl Meta {
         }
     }
 
-    fn get_meta_entry<'a>(&'a self, name: &str) -> Option<&'a MetaEntry> {
-        let mut v = self.entries.iter().filter(|e| e.crate_name == name).to_vec();
+    pub fn get_meta_entry<'a>(&'a self, name: &str) -> Option<&'a MetaEntry> {
+        let mut v = self.entries.iter()
+            .filter(|e| e.package == name || e.crate_name == name)
+            .to_vec();
         if v.len() == 0 {
             return None;
         }
@@ -122,16 +147,16 @@ impl Meta {
         for line in txt.lines() {
             // note that features is in form '"foo","bar"' which we
             // store as 'foo bar'
-            if let Some((name,vs,features,filename)) = read_entry(line) {
-                let package = name.to_string();
-                let crate_name = proper_crate_name(&package);
+            if let Some((package,crate_name,vs,features,filename,path)) = read_entry(line) {
+                let crate_name = proper_crate_name(&crate_name);
                 self.entries.push(MetaEntry{
                     package: package,
                     crate_name: crate_name,
                     version: vs,
-                    features: features.replace(','," ").replace('"',""),
-                    debug_name: filename.into(),
-                    release_name: String::new()
+                    features: features,
+                    debug_name: filename,
+                    release_name: String::new(),
+                    path: PathBuf::from(path),
                 });
             }
         }
@@ -139,10 +164,10 @@ impl Meta {
 
     pub fn release(&mut self, txt: String) {
         for line in txt.lines() {
-            if let Some((name,vs,_,filename)) = read_entry(line) {
+            if let Some((name,_,vs,_,filename,_)) = read_entry(line) {
                 if let Some(entry) = self.entries.iter_mut()
                     .find(|e| e.package == name && e.version == vs) {
-                        entry.release_name = filename.into();
+                        entry.release_name = filename;
                 } else {
                     eprintln!("cannot find {} in release build",name);
                 }
@@ -154,8 +179,11 @@ impl Meta {
         let meta_f = file_name(cache);
         let mut f = File::create(&meta_f).or_die("cannot create cargo.meta");
         for e in self.entries {
-            write!(f,"{},{},{},{},{},{}\n",
-                e.package,e.crate_name,e.version,e.features,e.debug_name,e.release_name).or_die("i/o?");
+            write!(f,"{},{},{},{},{},{},{}\n",
+                e.package,e.crate_name,e.version,e.features,
+                e.debug_name,e.release_name,
+                e.path.display()
+            ).or_die("i/o?");
         }
     }
 

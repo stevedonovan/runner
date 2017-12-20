@@ -214,7 +214,7 @@ fn main() {
             args.quit("cleanup not implemented yet");
         } else
         if crates {
-            let mut m = meta::Meta::new_from_file(&static_cache);
+            let mut m = get_metadata();
             m.dump_crates(maybe_argument.ok());
         } else { // must be edit_toml
             let toml = static_cache.join("Cargo.toml");
@@ -228,19 +228,59 @@ fn main() {
     let optimized = args.get_bool("optimize");
 
     // Dynamically linking crates (experimental!)
-    if b("crate-path") || b("compile") {
-        let (crate_path,crate_name) = match crate_utils::crate_path(&file,&first_arg) {
-            Ok(t) => t,
-            Err(s) => args.quit(&s)
-        };
-        if b("crate-path") {
-            println!("{}",crate_utils::cache_path(&crate_name).display());
-        } else {
+    let (print_path, compile) = (b("crate-path"),b("compile"));
+    if print_path || compile {
+        let state = State::dll(optimized);
+        // plain-jane name is a crate name!
+        if crate_utils::plain_name(&first_arg) {
+            // but is it one of Ours? Then we definitely know what the
+            // actual crate name is AND where the source is cached
+            let m = get_metadata();
+            if let Some(e) = m.get_meta_entry(&first_arg) {
+                if e.path == Path::new("") { // 0.3.2+ upgrade......
+                    args.quit("please run 'runner --build' to update metadata");
+                }
+                if print_path {
+                   // will be <cargo dir>/src/FILE.rs
+                    let path = e.path.parent().unwrap().parent().unwrap();
+                    println!("{}",path.display());
+                } else {
+                    // TBD can override --features with features actually
+                    // used to build this crate
+                    println!("building crate '{}' at {}",e.crate_name, e.path.display());
+                    compile_crate(&args, &state, &e.crate_name, &e.path, None,  Vec::new());
+                }
+                return;
+            }
+        } else
+        if compile { // either a cargo directory or a Rust source file
+            if ! file.exists() {
+                args.quit("no such file or directory");
+            }
+            let (crate_name, crate_path) = if file.is_dir() {
+                match crate_utils::cargo_dir(&file) {
+                    Ok((path,cargo_toml)) => {
+                        // this is somewhat dodgy, since the default location can be changed
+                        // Safest bet is to add the crate to the runner static cache
+                        let source = path.join("src").join("lib.rs");
+                        let name = crate_utils::crate_name(&cargo_toml);
+                        (name, source)
+                    },
+                    Err(msg) => args.quit(&msg)
+                }
+            } else { // should be just a Rust source file
+                if file.extension().or_die("expecting extension") != "rs" {
+                    args.quit("expecting Rust source file");
+                }
+                let name = crate_utils::path_file_name(&file.with_extension(""));
+                (name, file.clone())
+            };
             println!("building crate '{}' at {}",crate_name, crate_path.display());
-            let state = State::dll(optimized);
             compile_crate(&args, &state, &crate_name, &crate_path, None,  Vec::new());
+            return;
+        } else { // we no longer go for wild goose chase to find crates in the Cargo cache
+            args.quit("not found in the static cache");
         }
-        return;
     }
 
     let state = State::exe(b("static"),optimized);
@@ -436,7 +476,7 @@ fn compile_crate(args: &lapp::Args, state: &State,
 
     let extern_crates: Vec<(String,String)> =
     if state.build_static && extern_crates.len() > 0 {
-        let m = meta::Meta::new_from_file(&static_cache_dir());
+        let m = get_metadata();
         extern_crates.into_iter().map(|c|
             (m.get_full_crate_name(&c,debug).or_then_die(|_| format!("no such crate '{}",c)),c)
         ).collect()
@@ -528,6 +568,15 @@ fn static_cache_dir() -> PathBuf {
     runner_directory().join(STATIC_CACHE)
 }
 
+fn get_metadata() -> meta::Meta {
+    let static_cache = static_cache_dir();
+    if meta::Meta::exists(&static_cache) {
+        meta::Meta::new_from_file(&static_cache)
+    } else {
+        es::quit("please create and build the static cache first")
+    }
+}
+
 fn static_cache_dir_check() -> PathBuf {
     let static_cache = static_cache_dir();
     if ! static_cache.exists() {
@@ -569,6 +618,25 @@ fn create_static_cache(crates: &[String], please_create: bool) {
         es::quit("static cache already created - use --add");
     }
 
+    // there are three forms possible
+    // a plain crate name - we assume latest version ('*')
+    // a name=vs - we'll ensure it gets quoted properly
+    // a local Cargo project
+    let crates_vs = crates.iter().map(|c| {
+        if let Some(idx) = c.find('=') {
+            // help with a little bit of quoting...
+            let (name,vs) = (&c[0..idx], &c[(idx+1)..]);
+            (name.to_string(),vs.to_string(),true)
+        } else {
+            if let Some((name,path)) = maybe_cargo_dir(&c) {
+                // hello - this is a local Cargo project!
+                (name, path.to_str().unwrap().to_string(),false)
+            } else { // latest version of crate
+                (c.to_string(), '*'.to_string(),true)
+            }
+        }
+    }).to_vec();
+
     let mut home = runner_directory();
     env::set_current_dir(&home).or_die("cannot change to home directory");
     if create {
@@ -576,6 +644,7 @@ fn create_static_cache(crates: &[String], please_create: bool) {
             es::quit("cannot create static cache");
         }
     }
+
     home.push(STATIC_CACHE);
     env::set_current_dir(&home).or_die("could not change to static cache directory");
     let tmpfile = env::temp_dir().join("Cargo.toml");
@@ -583,17 +652,32 @@ fn create_static_cache(crates: &[String], please_create: bool) {
     {
         let mut deps = fs::OpenOptions::new().append(true)
             .open("Cargo.toml").or_die("could not append to Cargo.toml");
-        for c in crates {
-            if let None = c.find('=') {
-                write!(deps,"{}=\"*\"\n",c)
+        for (name,vs,semver) in crates_vs {
+            if semver {
+                write!(deps,"{}=\"{}\"\n",name,vs)
             } else {
-                write!(deps,"{}\n",c)
+               write!(deps,"{}={{path=\"{}\"}}\n",name,vs)
             }.or_die("could not modify Cargo.toml");
         }
     }
     if ! build_static_cache() {
         println!("Error occurred - restoring Cargo.toml");
         fs::copy(&tmpfile,"Cargo.toml").or_die("cannot restore Cargo.toml");
+    }
+}
+
+fn maybe_cargo_dir(name: &str) -> Option<(String,PathBuf)> {
+    let path = Path::new(name);
+    println!("{:?} {:?}",path, env::current_dir());
+    if ! path.exists() || ! path.is_dir() {
+        return None;
+    }
+    let full_path = path.canonicalize().or_die("bad path, man!");
+    if let Ok((full_path,cargo_toml)) = crate_utils::cargo_dir(&full_path) {
+        let name = crate_utils::crate_name(&cargo_toml);
+        Some((name,full_path))
+    } else {
+        None
     }
 }
 
