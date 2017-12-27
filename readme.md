@@ -4,7 +4,7 @@
 
 Cargo is a good, reliable way to build programs and libraries in Rust with versioned dependencies.
 Those who have worked with the Wild West practices of C++ development find this particularly soothing,
-and it's frequently given as one of the strengths of the Rust ecosystem.
+and it's one of the core strengths of the Rust ecosystem.
 
 However, it's not intended to make running little test programs straightforward - you have to
 create a project with all the dependencies you wish to play with, and then edit `src/main.rs` and
@@ -24,7 +24,7 @@ are little 'scripts' formatted like Rust documentation examples.
 
 ```
 $ cat print.rs
-println!("Hello, World!")
+println!("Hello, World!");
 
 $ runner print.rs
 Hello, World!
@@ -83,7 +83,7 @@ The static option is much more convenient. You can easily create a static
 cache with some common crates:
 
 ```
-$ runner --create "time json regex"
+$ runner --add "time json regex"
 ```
 
 You can add as many crates if you like - number of available dependencies doesn't
@@ -137,13 +137,15 @@ Compile and run small Rust snippets
   -p, --prepend (default '') put this statement in body (useful for -i etc)
   -N, --no-prelude do not include runner prelude
   -c, --compile-only  will not run program and copies it into current dir
+  -r, --run  don't compile, only re-run
 
   Cache Management:
-  --create (string...) initialize the static cache with crates
-  --add  (string...) add new crates to the cache (after --create)
-  --edit  edit the static cache Cargo.toml
+  --add  (string...) add new crates to the cache
   --update update all, or a specific package given as argument
+  --edit  edit the static cache Cargo.toml
   --build rebuild the static cache
+  --cleanup clean out stale rlibs from cache
+  --crates current crates and their versions in cache
   --doc  display documentation (any argument will be specific crate name)
   --edit-prelude edit the default prelude for snippets
   --alias (string...) crate aliases in form alias=crate_name (used with -x)
@@ -151,15 +153,17 @@ Compile and run small Rust snippets
   Dynamic compilation:
   -P, --crate-path show path of crate source in Cargo cache
   -C, --compile  compile crate dynamically (limited)
+  -L, --link (string) path for extra libraries
   --cfg... (string) pass configuration variables to rustc
   --features (string...) enable features in compilation
   --libc  link dynamically against libc (special case)
   (--extern is used to explicitly link in a crate by name)
 
+  -v, --verbose describe what's happening
+  -V, --version version of runner
+
   <program> (string) Rust program, snippet or expression
   <args> (string...) arguments to pass to program
-
-
 ```
 
 You can say `runner --edit` to edit the static cache `Cargo.toml`, and `runner --build` to

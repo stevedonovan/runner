@@ -42,8 +42,7 @@ Compile and run small Rust snippets
   -r, --run  don't compile, only re-run
 
   Cache Management:
-  --create (string...) initialize the static cache with crates
-  --add  (string...) add new crates to the cache (after --create)
+  --add  (string...) add new crates to the cache
   --update update all, or a specific package given as argument
   --edit  edit the static cache Cargo.toml
   --build rebuild the static cache
@@ -174,14 +173,9 @@ fn main() {
     }
 
     // Static Cache Management
-    let crates = args.get_strings("create");
-    if crates.len() > 0 {
-        create_static_cache(&kitchen_sink(crates),true);
-        return;
-    }
     let crates = args.get_strings("add");
     if crates.len() > 0 {
-        create_static_cache(&kitchen_sink(crates),false);
+        create_static_cache(&kitchen_sink(crates));
         return;
     }
 
@@ -612,22 +606,11 @@ fn build_static_cache() -> bool {
 }
 
 
-fn create_static_cache(crates: &[String], please_create: bool) {
+fn create_static_cache(crates: &[String]) {
     use std::io::prelude::*;
 
-    // this is called with `true` for "--create" and `false` for "--add".
     let static_cache = static_cache_dir();
     let exists = static_cache.exists();
-
-    let mut create = please_create;
-    // It is fine to start with "add" since action is obvious...
-    if ! create && ! exists {
-        create = true;
-    } else
-    // but not to do "create" after static cache has been created
-    if create && exists {
-        es::quit("static cache already created - use --add");
-    }
 
     // there are three forms possible
     // a plain crate name - we assume latest version ('*')
@@ -650,7 +633,7 @@ fn create_static_cache(crates: &[String], please_create: bool) {
 
     let mut home = runner_directory();
     env::set_current_dir(&home).or_die("cannot change to home directory");
-    if create {
+    if ! exists {
         if ! cargo(&["new","--bin",STATIC_CACHE]) {
             es::quit("cannot create static cache");
         }
