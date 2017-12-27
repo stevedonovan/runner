@@ -102,7 +102,6 @@ const KITCHEN_SINK: &str = "
     simple-error error-chain
     nom
     rayon pipeliner
-    reqwest
     typed-arena
 ";
 
@@ -400,8 +399,14 @@ fn main() {
     if b("compile-only") {
         let file_name = rust_file.file_name().or_die("no file name?");
         let home = crate_utils::cargo_home().join("bin");
+        if ! home.is_dir() {
+            // With Windows, standalone installer does not create this directory
+            // (may well be a Bugge)
+            fs::create_dir(&home).or_die("could not create Cargo bin directory");
+            println!("creating Cargo bin directory {}\nEnsure it is on your PATH",home.display());
+        }
         let here = home.join(file_name).with_extension(exe_suffix);
-        println!("Copying {:?} to {:?}",program,here);
+        println!("Copying {} to {}",program.display(),here.display());
         fs::copy(&program,&here).or_die("cannot copy program");
         return;
     }
