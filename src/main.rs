@@ -834,11 +834,11 @@ fn massage_snippet(code: String, prelude: String,
     let massaged_code = format!("{}
 {}
 
-fn run() -> std::result::Result<(),Box<std::error::Error>> {{
+fn run(args: Vec<String>) -> std::result::Result<(),Box<std::error::Error>> {{
 {}    Ok(())
 }}
 fn main() {{
-    if let Err(e) = run() {{
+    if let Err(e) = run(std::env::args().collect()) {{
         println!(\"error: {{:?}}\",e);
     }}
 }}
