@@ -30,6 +30,15 @@ $ runner print.rs
 Hello, World!
 ```
 
+A special variable `args` is available containing any arguments passed to the program:
+
+```
+$ cat hello.rs
+println!("hello {}",args[1]);
+$ runner hello.rs dolly
+hello dolly
+```
+
 You can even - on Unix platforms - add a 'shebang' line to invoke runner:
 
 ```
@@ -53,6 +62,8 @@ use std::io;
 use std::io::prelude::*;
 use std::env;
 use std::path::{PathBuf,Path};
+use std::collections::HashMap;
+
 #[allow(unused_macros)]
 macro_rules! debug {
     ($x:expr) => {
@@ -67,6 +78,30 @@ you can edit it later with `runner --edit-prelude`.
 `debug!` saves typing: `debug!(my_var)` is equivalent to `println!("my_var = {:?}",my_var)`.
 
 `--no-prelude` (`-N`) prevents this from being included.
+
+As an experimental feature, `runner` will also do some massaging of `rustc` errors.
+They are usually very good, but involve fully qualified type names. `--simplify` (or `-S`)
+reduces `std::` references to something simpler.
+
+This is a snippet which a Java programmer would find easy to write - declare that type explicitly,
+and assume that the important verb is "set":
+
+```
+$ cat testm.rs
+let mut map: HashMap<String,String> = HashMap::new();
+map.set("hello","dolly");
+$  runner -S testm.rs
+error[E0599]: no method named `set` found for type `HashMap<String, String>` in the current scope
+  --> /home/steve/.cargo/.runner/bin/testm.rs:24:9
+   |
+24 |     map.set("hello","dolly");
+   |         ^^^
+   |
+   = help: did you mean `get`?
+```
+
+Since we are being very _informal_ with Rust here, it's appropriate that we don't wish the type spelled
+out in full glory (as you can see by running without `-S`): `std::collections::HashMap<std::string::String, std::string::String>`.
 
 ## Adding External Crates
 
@@ -138,6 +173,7 @@ Compile and run small Rust snippets
   -N, --no-prelude do not include runner prelude
   -c, --compile-only  will not run program and copies it into current dir
   -r, --run  don't compile, only re-run
+  -S, --simplify attempt to simplify rustc error messages
 
   Cache Management:
   --add  (string...) add new crates to the cache
@@ -176,9 +212,24 @@ so using `-sO` you can build snippets in release mode. Documentation is also bui
 for the cache, and `runner --doc` will open that documentation in the browser. (It's
 always nice to have local docs, especially in bandwidth-starved situations.)
 
-If you want docs for a specific crate, then `runner --doc crate` will work.
-But remember that the Rust documentation generated has a fast offline searchable
+If you want docs for a specific crate `NAME`, then `runner --doc crate NAME` will work.
+Remember that the Rust documentation generated has a fast offline searchable
 index!
+
+The `--crates` command also has an optional argument; without arguments it lists all
+he crates known to `runner`, with their versions. With a name, it uses an exact match:
+
+```
+$ runner --crates yansi
+yansi   0.3.4
+```
+
+The `-c` flag only compiles the program or snippet, and copies it to `~/.cargo/bin`.
+`-r` only runs the program, which must have previously been compiled, either
+explicitly with `-c` or implicitly with default operation.
+
+Plain Rust source files (which already have `fn main`) are of course supported, but you
+will need the `--extern` flag to bring in any external crates from the static cache.
 
 ## Dynamic Linking
 
