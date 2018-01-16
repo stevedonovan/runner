@@ -40,6 +40,7 @@ Compile and run small Rust snippets
   -N, --no-prelude do not include runner prelude
   -c, --compile-only  will not run program and copies it into current dir
   -r, --run  don't compile, only re-run
+  -S, --simplify attempt to simplify rustc error messages
 
   Cache Management:
   --add  (string...) add new crates to the cache
@@ -425,6 +426,21 @@ fn main() {
         .or_then_die(|e| format!("can't run program {:?}: {}",program,e));
 }
 
+fn simplify_qualified_names(text: &str) -> String {
+    let std = "std::";
+    let mut res = String::new();
+    let mut s = text;
+    while let Some(pos) = s.find(std) {
+        res.push_str(&s[0..pos]);
+        s = &s[pos+std.len()..];
+        if let Some(pos) = s.find("::") {
+            s = &s[pos+2..];
+        }
+    }
+    res.push_str(s);
+    res
+}
+
 // handle two useful cases:
 // - compile a crate as a dynamic library, given a name and an output dir
 // - compile a program, given a program
@@ -433,6 +449,7 @@ fn compile_crate(args: &lapp::Args, state: &State,
     output_program: Option<&Path>, mut extern_crates: Vec<String>) -> bool
 {
     let verbose = args.get_bool("verbose");
+    let simplify = args.get_bool("simplify");
     let debug = ! state.optimize;
 
     // implicit linking works fine, until it doesn't
@@ -500,7 +517,18 @@ fn compile_crate(args: &lapp::Args, state: &State,
         builder.arg("--extern").arg(&ext);
     }
     builder.arg(crate_path);
-    builder.status().or_die("can't run rustc").success()
+    if simplify {
+        builder.args(&["--color","always"]);
+        let output = builder.output().or_die("can't run rustc");
+        let status = output.status.success();
+        if ! status {
+            let err = String::from_utf8_lossy(&output.stderr);
+            eprintln!("{}",simplify_qualified_names(&err));
+        }
+        status
+    } else {
+        builder.status().or_die("can't run rustc").success()
+    }
 }
 
 // Windows shell quoting is a mess, so we make single quotes
