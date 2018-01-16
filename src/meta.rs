@@ -21,7 +21,12 @@ fn read_entry(line: &str) -> Option<(String,String,Version,String,String,String)
 
     if let Ok(doc) = json::parse(line) {
         let features = doc["features"].members().map(as_str).join(' ');
-        let path = Path::new(as_str(&doc["filenames"][0]));
+        let filenames = &doc["filenames"][0];
+        if ! filenames.is_string() {
+            println!("note: no filenames {}",line);
+            return None;
+        }
+        let path = Path::new(as_str(filenames));
 
         let filename = path.file_name().unwrap();
         let ext = path.extension();
