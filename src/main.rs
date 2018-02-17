@@ -11,7 +11,7 @@ use std::process;
 use std::env;
 use std::fs;
 use std::path::{Path,PathBuf};
-use std::collections::HashMap;
+use std::collections::{HashMap,HashSet};
 use std::io::Write;
 
 mod crate_utils;
@@ -25,7 +25,7 @@ use platform::{open,edit};
 
 use crate_utils::{RUSTUP_LIB, UNSTABLE};
 
-const VERSION: &str = "0.3.2";
+const VERSION: &str = "0.3.4";
 
 const USAGE: &str = "
 Compile and run small Rust snippets
@@ -36,11 +36,12 @@ Compile and run small Rust snippets
   -n, --lines evaluate expression over stdin; the var 'line' is defined
   -x, --extern... (string) add an extern crate to the snippet
   -X, --wild... (string) like -x but implies wildcard import
+  -M, --macro... (string) like -x but implies macro import
   -p, --prepend (default '') put this statement in body (useful for -i etc)
   -N, --no-prelude do not include runner prelude
   -c, --compile-only  will not run program and copies it into current dir
   -r, --run  don't compile, only re-run
-  -S, --simplify attempt to simplify rustc error messages
+  -S, --no-simplify by default, attempt to simplify rustc error messages
 
   Cache Management:
   --add  (string...) add new crates to the cache
@@ -346,9 +347,15 @@ fn main() {
         // and write this as a file in the Runner bin directory...
         let mut extern_crates = args.get_strings("extern");
         let wild_crates = args.get_strings("wild");
+        let macro_crates = args.get_strings("macro");
         if wild_crates.len() > 0 {
             extern_crates.extend(wild_crates.iter().cloned());
         }
+        if macro_crates.len() > 0 {
+            extern_crates.extend(macro_crates.iter().cloned());
+        }
+        let macro_crates: HashSet<_> = macro_crates.into_iter().collect();
+
         let mut extra = args.get_string("prepend");
         if ! extra.is_empty() {
             extra.push(';');
@@ -358,8 +365,9 @@ fn main() {
         } else {
             prelude
         };
+
         let (massaged_code, deduced_externs)
-            = massage_snippet(code, maybe_prelude, extern_crates, wild_crates, extra);
+            = massage_snippet(code, maybe_prelude, extern_crates, wild_crates, macro_crates, extra);
         code = massaged_code;
         externs = deduced_externs;
         if ! expression {
@@ -449,7 +457,7 @@ fn compile_crate(args: &lapp::Args, state: &State,
     output_program: Option<&Path>, mut extern_crates: Vec<String>) -> bool
 {
     let verbose = args.get_bool("verbose");
-    let simplify = args.get_bool("simplify");
+    let simplify = ! args.get_bool("no-simplify");
     let debug = ! state.optimize;
 
     // implicit linking works fine, until it doesn't
@@ -690,7 +698,6 @@ fn create_static_cache(crates: &[String]) {
 
 fn maybe_cargo_dir(name: &str) -> Option<(String,PathBuf)> {
     let path = Path::new(name);
-    println!("{:?} {:?}",path, env::current_dir());
     if ! path.exists() || ! path.is_dir() {
         return None;
     }
@@ -759,7 +766,7 @@ fn get_aliases() -> HashMap<String,String> {
 }
 
 fn massage_snippet(code: String, prelude: String,
-        extern_crates: Vec<String>, wild_crates: Vec<String>, body_prelude: String) -> (String,Vec<String>) {
+        extern_crates: Vec<String>, wild_crates: Vec<String>, macro_crates: HashSet<String>, body_prelude: String) -> (String,Vec<String>) {
     use strutil::{after,word_after};
 
     fn indent_line(line: &str) -> String {
@@ -779,7 +786,8 @@ fn massage_snippet(code: String, prelude: String,
                 prefix += &if let Some(aliased) = aliases.get(c) {
                     format!("extern crate {} as {};\n",aliased,c)
                 } else {
-                    format!("extern crate {};\n",c)
+                    let mac = if macro_crates.contains(c) {"#[macro_use] "} else {""};
+                    format!("{}extern crate {};\n",mac,c)
                 };
             }
             for c in wild_crates {

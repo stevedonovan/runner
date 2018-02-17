@@ -3,7 +3,7 @@
 ## Leaving the Comfort (and Restrictions) of Cargo
 
 Cargo is a good, reliable way to build programs and libraries in Rust with versioned dependencies.
-Those who have worked with the Wild West practices of C++ development find this particularly soothing,
+Those of us who have worked with the Wild West practices of C++ development find this particularly soothing,
 and it's one of the core strengths of the Rust ecosystem.
 
 However, it's not intended to make running little test programs straightforward - you have to
@@ -29,6 +29,10 @@ println!("Hello, World!");
 $ runner print.rs
 Hello, World!
 ```
+This follows basically the same rules as the doc-test snippets you find in Rust
+documentation, so `runner` allows you to copy those snippets into an editor
+and directly run them (I bind 'run' for Rust projects to `runner ...` in
+my favourite editor.)
 
 A special variable `args` is available containing any arguments passed to the program:
 
@@ -50,12 +54,23 @@ $ ./hello
 Hello, World!
 ```
 
+Arguments can be conveniently accessed with a provided `args` array:
+
+```
+$ cat hello.rs
+println!("Hello {}", args[1]);
+$ runner hello.rs world
+Hello world
+```
+
 `runner` adds the necessary boilerplate and creates a proper Rust program in `~/.cargo/.runner/bin`,
 prefixed with a prelude, which is initially:
 
 ```rust
 #![allow(unused_imports)]
+#![allow(unused_variables)]
 #![allow(dead_code)]
+#![allow(unused_macros)]
 use std::fs;
 use std::fs::File;
 use std::io;
@@ -64,7 +79,6 @@ use std::env;
 use std::path::{PathBuf,Path};
 use std::collections::HashMap;
 
-#[allow(unused_macros)]
 macro_rules! debug {
     ($x:expr) => {
         println!(\"{} = {:?}\",stringify!($x),$x);
@@ -72,17 +86,18 @@ macro_rules! debug {
 }
 ```
 
+
 After first invocation of `runner`, this is found in `~/.cargo/.runner/prelude`;
 you can edit it later with `runner --edit-prelude`.
 
+If upgrading from earlier versions of `runner` you may get annoying unused variable warnings
+with `args` - just add a "![allow(unused_variables)]" line to your prelude.
+
 `debug!` saves typing: `debug!(my_var)` is equivalent to `println!("my_var = {:?}",my_var)`.
 
-`--no-prelude` (`-N`) prevents this from being included.
-
 As an experimental feature, `runner` will also do some massaging of `rustc` errors.
-They are usually very good, but involve fully qualified type names. `--simplify` (or `-S`)
-reduces `std::` references to something simpler.
-
+They are usually very good, but involve fully qualified type names.
+It reduces `std::` references to something simpler.
 This is a snippet which a Java programmer would find easy to write - declare that type explicitly,
 and assume that the important verb is "set":
 
@@ -90,7 +105,7 @@ and assume that the important verb is "set":
 $ cat testm.rs
 let mut map: HashMap<String,String> = HashMap::new();
 map.set("hello","dolly");
-$  runner -S testm.rs
+$  runner testm.rs
 error[E0599]: no method named `set` found for type `HashMap<String, String>` in the current scope
   --> /home/steve/.cargo/.runner/bin/testm.rs:24:9
    |
@@ -101,7 +116,8 @@ error[E0599]: no method named `set` found for type `HashMap<String, String>` in 
 ```
 
 Since we are being very _informal_ with Rust here, it's appropriate that we don't wish the type spelled
-out in full glory (as you can see by running without `-S`): `std::collections::HashMap<std::string::String, std::string::String>`.
+out in full glory (as you can see by running with `-S`):
+ `std::collections::HashMap<std::string::String, std::string::String>`.
 
 ## Adding External Crates
 
@@ -258,16 +274,17 @@ so that the Cargo cache is populated, e.g. with `runner --add regex`)
 
 ```
 runner -C --features "default use_std" libc
-runner -C --libc --features "default use_std" memchr
+runner -C --libc --features "default use_std"  memchr
 runner -C --libc thread-id
 runner -C --features std  void
 runner -C utf8-ranges
 runner -C unreachable
 runner -C aho-corasick
 runner -C lazy_static
-runner -C --libc thread_local
+runner -C -xlazy_static thread_local
 runner -C regex-syntax
-runner -C regex
+runner -C -xlazy_static regex
+
 ```
 This script drives home how tremendously irritating life in Rust would be without Cargo.
 We have to track the dependencies, ensure that the correct default features are enabled in the
@@ -303,7 +320,7 @@ _expression_.  You can use it as an unusually strict desktop calculator:
 
 ```
 $ runner -e "10 + 20*4.5"
-error[E0277]: the trait bound `{integer}: std::ops::Mul<{float}>` is not satisfied
+error[E0277]: the trait bound `{integer}: Mul<{float}>` is not satisfied
   --> temp/tmp.rs:20:22
    |
 20 |     let res = 10 + 20*4.5;
@@ -311,6 +328,8 @@ error[E0277]: the trait bound `{integer}: std::ops::Mul<{float}>` is not satisfi
 ```
 
 Likewise, you have to say `1.2f64.sin()` because `1.2` has ambiguous type.
+
+(Please notice that the trait `std::ops::Mul` is presented in _simplified form_.)
 
 `--expression` is very useful if you quickly want to find out how Rust
 will evaluate an expression - we do a debug print for maximum flexibility.
@@ -402,7 +421,7 @@ Tm { tm_sec: 34, tm_min: 4, tm_hour: 9, tm_mday: 28, tm_mon: 6, tm_year: 117,
 tm_wday: 5, tm_yday: 208, tm_isdst: 0, tm_utcoff: 7200, tm_nsec: 302755857 }
 ```
 
-'-X' is like '-x' except it brings all the crate's symbols into scope.
+'-X' (`--wild`) is like `-x` except it brings all the crate's symbols into scope.
 Not something you would overdo in regular code, but it makes for shorter
 command lines - the last example becomes (note how short flags can be combined):
 
@@ -410,6 +429,30 @@ command lines - the last example becomes (note how short flags can be combined):
 $ runner -sXtime -e "now()"
 ...
 ```
+`-M` (`--macro`) is also like `-x` except it prepends the 'extern crate' with
+`#[macro_use]`.  Consider the very cool [r4](https://docs.rs/r4) crate which
+provides list comprehensions. First load in the static cache with `runner --add r4`,
+and then we can say:
+
+```
+$ runner -s --macro r4 -i 'iterate![for x in 0..4; yield x]'
+0
+1
+2
+3
+```
+
+Small snippets like these are faster if the crates can be linked dynamically, so
+after `runner -C r4` to build a shared library in the dynamic cast, you can run this
+without the `-s`. The compile step goes down from 0.773s to 0.507s.
+
+```
+$ runner -Xto_vec -Mr4 -e 'iterate![for i in 0..2; for j in 0..2; yield (i,j)].to_vec()'
+[(0, 0), (0, 1), (1, 0), (1, 1)]
+```
+
+(At this point, the command-line is getting sufficiently complicated that you would
+be better off with a little snippet that you can edit in a proper editor.)
 
 With `-e`,`-n` or `-i`, you can specify. some initial code with `--prepend`:
 
