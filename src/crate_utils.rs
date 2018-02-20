@@ -7,7 +7,7 @@ use es::traits::*;
 
 lazy_static! {
     pub static ref RUSTUP_LIB: String = es::shell("rustc --print sysroot") + "/lib";
-    pub static ref UNSTABLE: bool = RUSTUP_LIB.find("stable").is_none();
+    pub static ref UNSTABLE: bool = RUSTUP_LIB.find("nightly").is_some();
 }
 
 pub fn proper_crate_name(crate_name: &str) -> String {
