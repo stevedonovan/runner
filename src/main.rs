@@ -4,6 +4,7 @@
 extern crate easy_shortcuts as es;
 extern crate lapp;
 #[macro_use] extern crate lazy_static;
+#[macro_use] extern crate serde_derive;
 extern crate semver;
 extern crate isatty;
 extern crate toml;
@@ -20,6 +21,7 @@ mod crate_utils;
 mod platform;
 mod strutil;
 mod meta;
+mod cargo_lock;
 
 use std::env::consts::{EXE_SUFFIX,DLL_SUFFIX,DLL_PREFIX};
 

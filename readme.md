@@ -237,8 +237,11 @@ he crates known to `runner`, with their versions. With a name, it uses an exact 
 
 ```
 $ runner --crates yansi
-yansi   0.3.4
+yansi = "0.3.4"
 ```
+
+You may provide a number of crate names here; if `--verbose` (`-v`) is specified
+then the dependencies of these crates are also listed.
 
 The `-c` flag only compiles the program or snippet, and copies it to `~/.cargo/bin`.
 `-r` only runs the program, which must have previously been compiled, either

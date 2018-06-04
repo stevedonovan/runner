@@ -1,7 +1,6 @@
 // parse output of cargo build --message-format json,
 // caching the results. Can get the exact name of the .rlib
 // for the latest available version in the static cache.
-use toml;
 extern crate json;
 use std::path::{Path,PathBuf};
 use std::fs::File;
@@ -11,6 +10,7 @@ use super::static_cache_dir;
 use es;
 use es::traits::*;
 use super::crate_utils::proper_crate_name;
+use cargo_lock;
 
 use semver::Version;
 
@@ -138,12 +138,8 @@ impl Meta {
 
     pub fn dump_crates (&mut self, maybe_names: Vec<String>, verbose: bool) {
         if maybe_names.len() > 0 {
-            let toml;
             let packages = if verbose {
-                let lockf = static_cache_dir().join("Cargo.lock");
-                let body = es::read_to_string(lockf);
-                toml = body.parse::<toml::Value>().or_die("cannot parse Cargo.lock");
-                Some(toml.as_table().unwrap().get("package").unwrap().as_array().unwrap())
+                Some(cargo_lock::read_cargo_lock(&static_cache_dir()).package)
             } else {
                 None
             };
@@ -152,8 +148,9 @@ impl Meta {
                 if entries.len() > 0 {
                     for e in entries {
                         println!("{} = \"{}\"",e.package,e.version);
-                        if let Some(packages) = packages {
-                            print_dependencies(&e.package, packages, 1);
+                        if let Some(ref packages) = packages {
+                            let version = e.version.to_string();
+                            print_dependencies(&e.package, &version, &packages, 1);
                         }
                     }
                 } else {
@@ -213,38 +210,20 @@ impl Meta {
             ).or_die("i/o?");
         }
     }
-
 }
 
-fn as_table(v: &toml::Value) -> &toml::value::Table {
-    v.as_table().unwrap()
-}
-
-fn as_array(v: &toml::Value) -> &Vec<toml::Value> {
-    v.as_array().unwrap()
-}
-
-fn as_string(v: &toml::Value) -> &str {
-    v.as_str().unwrap()
-}
-
-fn gets<'a>(t: &'a toml::value::Table, key: &str) -> &'a str {
-    as_string(t.get(key).unwrap())
-}
-
-fn print_dependencies(package: &str, packages: &[toml::Value], indent: u32) {
+fn print_dependencies(package: &str, version: &str, packages: &[cargo_lock::Package], indent: u32) {
     let p = packages.iter()
-        .find(|p| gets(as_table(p),"name") == package)
+        .find(|p| p.name == package && p.version == version)
         .or_die("cannot find package in static cache Cargo.lock");
     let indents = (0..indent).map(|_| '\t').collect::<String>();
-    if let Some(deps) = as_table(p).get("dependencies") {
-        for d in as_array(deps).iter() {
-            let dep = as_string(d);
-            let mut iter = dep.split_whitespace();
+    if let Some(ref deps) = p.dependencies {
+        for d in deps.iter() {
+            let mut iter = d.split_whitespace();
             let pname = iter.next().unwrap();
             let version = iter.next().unwrap();
             println!("{}{} = \"{}\"", indents, pname, version);
-            print_dependencies(pname, packages, indent + 1);
+            print_dependencies(pname, version, packages, indent + 1);
         }
     }
 }

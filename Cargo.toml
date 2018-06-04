@@ -22,6 +22,8 @@ semver = "0.9"
 json = "0.11"
 isatty = "0.1.8"
 toml = "0.4.5"
+serde_derive = "1.0.27"
+serde = "1.0.27"
 
 [profile.release]
 panic = 'abort'
