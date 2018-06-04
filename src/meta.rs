@@ -1,12 +1,14 @@
 // parse output of cargo build --message-format json,
 // caching the results. Can get the exact name of the .rlib
 // for the latest available version in the static cache.
+use toml;
 extern crate json;
 use std::path::{Path,PathBuf};
 use std::fs::File;
 use std::io::Write;
 
-use super::es;
+use super::static_cache_dir;
+use es;
 use es::traits::*;
 use super::crate_utils::proper_crate_name;
 
@@ -112,11 +114,14 @@ impl Meta {
             entries: v
         }
     }
+    pub fn get_meta_entries<'a>(&'a self, name: &str) -> Vec<&'a MetaEntry> {
+        self.entries.iter()
+            .filter(|e| e.package == name || e.crate_name == name)
+            .collect()
+    }
 
     pub fn get_meta_entry<'a>(&'a self, name: &str) -> Option<&'a MetaEntry> {
-        let mut v = self.entries.iter()
-            .filter(|e| e.package == name || e.crate_name == name)
-            .to_vec();
+        let mut v = self.get_meta_entries(name);
         if v.len() == 0 {
             return None;
         }
@@ -131,19 +136,34 @@ impl Meta {
             .map(|e| if debug {e.debug_name.clone()} else {e.release_name.clone()})
     }
 
-    pub fn dump_crates (&mut self, maybe_names: Vec<String>) {
+    pub fn dump_crates (&mut self, maybe_names: Vec<String>, verbose: bool) {
         if maybe_names.len() > 0 {
+            let toml;
+            let packages = if verbose {
+                let lockf = static_cache_dir().join("Cargo.lock");
+                let body = es::read_to_string(lockf);
+                toml = body.parse::<toml::Value>().or_die("cannot parse Cargo.lock");
+                Some(toml.as_table().unwrap().get("package").unwrap().as_array().unwrap())
+            } else {
+                None
+            };
             for name in maybe_names {
-                if let Some(e) = self.get_meta_entry(&name) {
-                    println!("{} = \"{}\"",e.crate_name,e.version);
+                let entries = self.get_meta_entries(&name);
+                if entries.len() > 0 {
+                    for e in entries {
+                        println!("{} = \"{}\"",e.package,e.version);
+                        if let Some(packages) = packages {
+                            print_dependencies(&e.package, packages, 1);
+                        }
+                    }
                 } else {
-                    es::quit("no such crate");
+                    es::quit(&format!("no such crate {:?}", name));
                 }
             }
         } else {
-            self.entries.sort_by(|a,b| a.crate_name.cmp(&b.crate_name));
+            self.entries.sort_by(|a,b| a.package.cmp(&b.package));
             for e in self.entries.iter() {
-                println!("{} = \"{}\"",e.crate_name,e.version);
+                println!("{} = \"{}\"",e.package,e.version);
             }
         }
     }
@@ -194,4 +214,37 @@ impl Meta {
         }
     }
 
+}
+
+fn as_table(v: &toml::Value) -> &toml::value::Table {
+    v.as_table().unwrap()
+}
+
+fn as_array(v: &toml::Value) -> &Vec<toml::Value> {
+    v.as_array().unwrap()
+}
+
+fn as_string(v: &toml::Value) -> &str {
+    v.as_str().unwrap()
+}
+
+fn gets<'a>(t: &'a toml::value::Table, key: &str) -> &'a str {
+    as_string(t.get(key).unwrap())
+}
+
+fn print_dependencies(package: &str, packages: &[toml::Value], indent: u32) {
+    let p = packages.iter()
+        .find(|p| gets(as_table(p),"name") == package)
+        .or_die("cannot find package in static cache Cargo.lock");
+    let indents = (0..indent).map(|_| '\t').collect::<String>();
+    if let Some(deps) = as_table(p).get("dependencies") {
+        for d in as_array(deps).iter() {
+            let dep = as_string(d);
+            let mut iter = dep.split_whitespace();
+            let pname = iter.next().unwrap();
+            let version = iter.next().unwrap();
+            println!("{}{} = \"{}\"", indents, pname, version);
+            print_dependencies(pname, packages, indent + 1);
+        }
+    }
 }

@@ -224,7 +224,7 @@ fn main() {
                 crates.push(name);
                 crates.extend(args.get_strings("args"));
             }
-            m.dump_crates(crates);
+            m.dump_crates(crates, verbose);
         } else { // must be edit_toml
             let toml = static_cache.join("Cargo.toml");
             edit(&toml);
@@ -620,7 +620,7 @@ fn cargo_build(release: bool) -> Option<String> {
 const STATIC_CACHE: &str = "static-cache";
 const DYNAMIC_CACHE: &str = "dy-cache";
 
-fn static_cache_dir() -> PathBuf {
+pub fn static_cache_dir() -> PathBuf {
     runner_directory().join(STATIC_CACHE)
 }
 
