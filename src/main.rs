@@ -5,6 +5,7 @@ extern crate easy_shortcuts as es;
 extern crate lapp;
 #[macro_use] extern crate lazy_static;
 extern crate semver;
+extern crate isatty;
 
 use es::traits::*;
 use std::process;
@@ -537,7 +538,9 @@ fn compile_crate(args: &lapp::Args, state: &State,
     }
     builder.arg(crate_path);
     if simplify {
-        builder.args(&["--color","always"]);
+        if isatty::stderr_isatty() {
+            builder.args(&["--color","always"]);
+        }
         let output = builder.output().or_die("can't run rustc");
         let status = output.status.success();
         if ! status {
