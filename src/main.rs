@@ -217,7 +217,12 @@ fn main() {
         } else
         if crates {
             let mut m = get_metadata();
-            m.dump_crates(maybe_argument.ok());
+            let mut crates = Vec::new();
+            if let Some(name) = maybe_argument.ok() {
+                crates.push(name);
+                crates.extend(args.get_strings("args"));
+            }
+            m.dump_crates(crates);
         } else { // must be edit_toml
             let toml = static_cache.join("Cargo.toml");
             edit(&toml);
@@ -249,8 +254,12 @@ fn main() {
                 } else {
                     // TBD can override --features with features actually
                     // used to build this crate
-                    println!("building crate '{}' at {}",e.crate_name, e.path.display());
-                    compile_crate(&args, &state, &e.crate_name, &e.path, None,  Vec::new());
+                    let build_features = &e.features;
+                    println!("building crate '{}' {} at {}",e.crate_name, build_features, e.path.display());
+                    compile_crate(&args, &state, &e.crate_name, &e.path, None,
+                        Vec::new(),
+                        build_features.split_whitespace().map(|s| s.to_string()).collect()
+                    );
                 }
                 return;
             }
@@ -278,7 +287,7 @@ fn main() {
                 (name, file.clone())
             };
             println!("building crate '{}' at {}",crate_name, crate_path.display());
-            compile_crate(&args, &state, &crate_name, &crate_path, None,  Vec::new());
+            compile_crate(&args, &state, &crate_name, &crate_path, None,  Vec::new(),Vec::new());
             return;
         } else { // we no longer go for wild goose chase to find crates in the Cargo cache
             args.quit("not found in the static cache");
@@ -391,7 +400,7 @@ fn main() {
             args.quit(&format!("program {:?} does not exist",program));
         }
     } else {
-        if ! compile_crate(&args,&state,"",&rust_file,Some(&program), externs) {
+        if ! compile_crate(&args,&state,"",&rust_file,Some(&program), externs, Vec::new()) {
             return;
         }
         if verbose {
@@ -454,7 +463,7 @@ fn simplify_qualified_names(text: &str) -> String {
 // - compile a program, given a program
 fn compile_crate(args: &lapp::Args, state: &State,
     crate_name: &str, crate_path: &Path,
-    output_program: Option<&Path>, mut extern_crates: Vec<String>) -> bool
+    output_program: Option<&Path>, mut extern_crates: Vec<String>, features: Vec<String>) -> bool
 {
     let verbose = args.get_bool("verbose");
     let simplify = ! args.get_bool("no-simplify");
@@ -469,7 +478,8 @@ fn compile_crate(args: &lapp::Args, state: &State,
         extern_crates.push("libc".into());
     }
     let mut cfg = args.get_strings("cfg");
-    for f in args.get_strings("features") {
+    let explicit_features = args.get_strings("features");
+    for f in if explicit_features.len() > 0 {explicit_features} else {features} {
         cfg.push(format!("feature=\"{}\"",f));
     }
     let cache = get_cache(&state);
@@ -508,7 +518,8 @@ fn compile_crate(args: &lapp::Args, state: &State,
     if state.build_static && extern_crates.len() > 0 {
         let m = get_metadata();
         extern_crates.into_iter().map(|c|
-            (m.get_full_crate_name(&c,debug).or_then_die(|_| format!("no such crate '{}",c)),c)
+            (m.get_full_crate_name(&c,debug)
+                .or_then_die(|_| format!("no such crate '{}' in static cache: use --add",c)),c)
         ).collect()
     } else {
         extern_crates.into_iter().map(|c|

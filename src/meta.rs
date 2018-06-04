@@ -131,17 +131,19 @@ impl Meta {
             .map(|e| if debug {e.debug_name.clone()} else {e.release_name.clone()})
     }
 
-    pub fn dump_crates (&mut self, maybe_name: Option<String>) {
-        if let Some(name) = maybe_name {
-            if let Some(e) = self.get_meta_entry(&name) {
-                println!("{}\t{}",e.crate_name,e.version);
-            } else {
-                es::quit("no such crate");
+    pub fn dump_crates (&mut self, maybe_names: Vec<String>) {
+        if maybe_names.len() > 0 {
+            for name in maybe_names {
+                if let Some(e) = self.get_meta_entry(&name) {
+                    println!("{} = \"{}\"",e.crate_name,e.version);
+                } else {
+                    es::quit("no such crate");
+                }
             }
         } else {
             self.entries.sort_by(|a,b| a.crate_name.cmp(&b.crate_name));
             for e in self.entries.iter() {
-                println!("{}\t{}",e.crate_name,e.version);
+                println!("{} = \"{}\"",e.crate_name,e.version);
             }
         }
     }
