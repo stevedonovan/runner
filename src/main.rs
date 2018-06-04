@@ -6,6 +6,7 @@ extern crate lapp;
 #[macro_use] extern crate lazy_static;
 extern crate semver;
 extern crate isatty;
+extern crate toml;
 
 use es::traits::*;
 use std::process;

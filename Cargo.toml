@@ -2,9 +2,9 @@
 name = "runner"
 version = "0.3.5"
 authors = ["steve donovan <steve.j.donovan@gmail.com>"]
-description = "utility for running Rust snippets"
+description = "Utility for running Rust snippets"
 
-documentation = "https://docs.rs/runner"
+documentation = "https://docs.rs/crate/runner"
 repository = "https://github.com/stevedonovan/runner"
 
 readme = "readme.md"
@@ -21,6 +21,7 @@ lazy_static = "0.2"
 semver = "0.9"
 json = "0.11"
 isatty = "0.1.8"
+toml = "0.4.5"
 
 [profile.release]
 panic = 'abort'

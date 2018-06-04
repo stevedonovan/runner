@@ -2,7 +2,7 @@
 use super::es;
 use std::env;
 use std::path::{Path,PathBuf};
-
+use toml;
 use es::traits::*;
 
 lazy_static! {
@@ -50,16 +50,14 @@ pub fn cargo_dir(dir: &Path) -> Result<(PathBuf,PathBuf),String> {
     Err("No Cargo project in this path".into())
 }
 
-// Very hacky stuff - we want the ACTUAL crate name, not the directory/repo name
-// So look just past [package] and scrape the name...
+// we want the ACTUAL crate name, not the directory/repo name
 pub fn crate_name(cargo_toml: &Path) -> String {
-    let name_line = es::lines(es::open(cargo_toml))
-        .skip_while(|line| line.trim() != "[package]")
-        .skip(1)
-        .skip_while(|line| ! line.starts_with("name "))
-        .next().or_die("totally fked Cargo.toml");
-    let idx = name_line.find('"').or_die("no name?");
-    (&name_line[(idx+1)..(name_line.len()-1)]).into()
+    let body = es::read_to_string(cargo_toml);
+    let toml = body.parse::<toml::Value>().or_die("cannot parse Cargo.toml");
+    let package = toml.as_table().unwrap()
+        .get("package").unwrap();
+    package.get("name").unwrap()
+        .as_str().unwrap().to_string()
 }
 
 
