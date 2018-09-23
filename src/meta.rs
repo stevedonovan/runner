@@ -25,7 +25,7 @@ fn read_entry(line: &str) -> Option<(String,String,Version,String,String,String)
         let features = doc["features"].members().map(as_str).join(' ');
         let filenames = &doc["filenames"][0];
         if ! filenames.is_string() {
-            println!("note: no filenames {}",line);
+            //println!("note: no filenames {}",line);
             return None;
         }
         let path = Path::new(as_str(filenames));

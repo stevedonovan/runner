@@ -29,7 +29,7 @@ use platform::{open,edit};
 
 use crate_utils::{RUSTUP_LIB, UNSTABLE};
 
-const VERSION: &str = "0.3.4";
+const VERSION: &str = "0.3.6";
 
 const USAGE: &str = "
 Compile and run small Rust snippets

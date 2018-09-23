@@ -61,7 +61,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "runner"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "easy-shortcuts 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "isatty 0.1.8 (registry+https://github.com/rust-lang/crates.io-index)",
