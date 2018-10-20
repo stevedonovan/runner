@@ -34,6 +34,16 @@ documentation, so `runner` allows you to copy those snippets into an editor
 and directly run them (I bind 'run' for Rust projects to `runner ...` in
 my favourite editor.)
 
+## Installation
+
+Runner is best installed from Cargo:
+
+```
+$ cargo install runner
+```
+
+## Usage
+
 A special variable `args` is available containing any arguments passed to the program:
 
 ```
