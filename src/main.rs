@@ -8,6 +8,7 @@ extern crate lapp;
 extern crate semver;
 extern crate isatty;
 extern crate toml;
+extern crate shlex;
 
 use es::traits::*;
 use std::process;
@@ -29,11 +30,12 @@ use platform::{open,edit};
 
 use crate_utils::{RUSTUP_LIB, UNSTABLE};
 
-const VERSION: &str = "0.3.6";
+const VERSION: &str = "0.3.7";
 
 const USAGE: &str = "
 Compile and run small Rust snippets
   -s, --static build statically (default is dynamic)
+  -d, --dynamic overrides --static in env.rs
   -O, --optimize optimized static build
   -e, --expression evaluate an expression
   -i, --iterator iterate over an expression
@@ -43,7 +45,7 @@ Compile and run small Rust snippets
   -M, --macro... (string) like -x but implies macro import
   -p, --prepend (default '') put this statement in body (useful for -i etc)
   -N, --no-prelude do not include runner prelude
-  -c, --compile-only  will not run program and copies it into current dir
+  -c, --compile-only  will not run program and copies it into ~/.cargo/bin
   -r, --run  don't compile, only re-run
   -S, --no-simplify by default, attempt to simplify rustc error messages
 
@@ -144,8 +146,31 @@ impl State {
 }
 
 fn main() {
-    let args = lapp::parse_args(USAGE);
-    let prelude = get_prelude();
+    let mut args = lapp::Args::new(USAGE);
+    args.parse_spec().or_die("bad spec");
+    let env = Path::new("env.rs");
+    let env_prelude = if env.exists() {
+        let contents = fs::read_to_string(env).or_die("cannot read env.rs");
+        {
+            let first_line = contents.lines().next().or_die("empty env.rs");
+            if first_line.starts_with("//ARGS ") {
+                let default_args = &first_line[7..];
+                let default_args = shlex::split(default_args).or_die("bad default args");
+                args.parse_command_line(default_args).or_die("cannot parse default args");
+                args.clear_used();
+            }
+        }
+        Some(contents)
+    } else {
+        None
+    };
+
+    args.parse_env_args().or_die("bad command line");
+    
+    let mut prelude = get_prelude();
+    if let Some(env_prelude) = env_prelude {
+        prelude.insert_str(0, &env_prelude);
+    }
     let b = |p| args.get_bool(p);
 
     // weirdly, with_extension requires suffix without the dot
@@ -298,7 +323,8 @@ fn main() {
         }
     }
 
-    let state = State::exe(b("static"),optimized);
+    let static_state = b("static") && ! b("dynamic");
+    let state = State::exe(static_state,optimized);
 
     // we'll pass rest of arguments to program
     let program_args = args.get_strings("args");
