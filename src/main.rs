@@ -657,14 +657,14 @@ fn get_metadata() -> meta::Meta {
     if meta::Meta::exists(&static_cache) {
         meta::Meta::new_from_file(&static_cache)
     } else {
-        es::quit("please create and build the static cache first")
+        es::quit("please build the static cache with `runner --add <crate>...` first");
     }
 }
 
 fn static_cache_dir_check() -> PathBuf {
     let static_cache = static_cache_dir();
     if ! static_cache.exists() {
-        es::quit("please build static cache with --create first");
+        es::quit("please build the static cache with `runner --add <crate>...` first");
     }
     static_cache
 }
