@@ -281,7 +281,7 @@ runner -C --libc --features "default use_std"  memchr
 runner -C --libc thread-id
 runner -C --features std  void
 runner -C utf8-ranges
-runner -C unreachable
+runner -xvoid -C unreachable
 runner -C aho-corasick
 runner -C lazy_static
 runner -C -xlazy_static thread_local

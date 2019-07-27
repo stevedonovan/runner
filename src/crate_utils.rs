@@ -4,6 +4,7 @@ use std::env;
 use std::path::{Path,PathBuf};
 use toml;
 use es::traits::*;
+use dirs;
 
 lazy_static! {
     pub static ref RUSTUP_LIB: String = es::shell("rustc --print sysroot") + "/lib";
@@ -33,7 +34,7 @@ pub fn cargo_home() -> PathBuf {
     if let Ok(home) = env::var("CARGO_HOME") { // set in cargo runs
         home.into()
     } else {
-        env::home_dir().or_die("no home!").join(".cargo")
+        dirs::home_dir().or_die("no home!").join(".cargo")
     }
 }
 

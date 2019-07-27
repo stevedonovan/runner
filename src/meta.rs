@@ -6,7 +6,7 @@ use std::path::{Path,PathBuf};
 use std::fs::File;
 use std::io::Write;
 
-use super::static_cache_dir;
+use cache::static_cache_dir;
 use es;
 use es::traits::*;
 use super::crate_utils::proper_crate_name;
