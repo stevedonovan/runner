@@ -199,7 +199,7 @@ pub fn massage_snippet(code: String, prelude: String,
     let massaged_code = format!("{}
 {}
 
-fn run(args: Vec<String>) -> std::result::Result<(),Box<std::error::Error>> {{
+fn run(args: Vec<String>) -> std::result::Result<(),Box<dyn std::error::Error+Sync+Send>> {{
 {}    Ok(())
 }}
 fn main() {{
