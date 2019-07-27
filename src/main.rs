@@ -2,14 +2,10 @@
 //!
 //! Please see [readme](https://github.com/stevedonovan/runner/blob/master/readme.md)
 extern crate easy_shortcuts as es;
-use lapp;
 #[macro_use] extern crate lazy_static;
 #[macro_use] extern crate serde_derive;
-use semver;
-use isatty;
-use toml;
+use lapp;
 use shlex;
-use dirs;
 
 use es::traits::*;
 use std::process;
@@ -88,8 +84,9 @@ fn main() {
         let contents = fs::read_to_string(env).or_die("cannot read env.rs");
         {
             let first_line = contents.lines().next().or_die("empty env.rs");
-            if first_line.starts_with("//ARGS ") {
-                let default_args = &first_line[7..];
+            let arg_comment = "//ARGS ";
+            if first_line.starts_with(arg_comment) {
+                let default_args = &first_line[arg_comment.len()..];
                 let default_args = shlex::split(default_args).or_die("bad default args");
                 args.parse_command_line(default_args).or_die("cannot parse default args");
                 args.clear_used();
@@ -175,7 +172,6 @@ fn main() {
             open(&docs);
         } else
         if cleanup {
-            //args.quit("cleanup not implemented yet");
             cache::cargo(&["clean"]);
         } else
         if crates {
@@ -208,7 +204,7 @@ fn main() {
             // actual crate name is AND where the source is cached
             let m = cache::get_metadata();
             if let Some(e) = m.get_meta_entry(&first_arg) {
-                if e.path == Path::new("") { // 0.3.2+ upgrade......
+                if e.path == Path::new("") {
                     args.quit("please run 'runner --build' to update metadata");
                 }
                 if print_path {
@@ -293,7 +289,7 @@ fn main() {
         s
     } else { // otherwise, just a file
         expression = false;
-        es::read_to_string(&file)
+        fs::read_to_string(&file).or_die("cannot read file")
     };
 
     // ALL executables go into the Runner bin directory...
@@ -336,7 +332,7 @@ fn main() {
         } else { // we make up a name...
             bin.push("tmp.rs");
         }
-        es::write_all(&bin,&code);
+        fs::write(&bin,&code).or_die("cannot write code");
         let program = bin.with_extension(exe_suffix);
         (bin, program)
     } else {

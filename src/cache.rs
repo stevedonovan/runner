@@ -233,13 +233,13 @@ pub fn get_prelude() -> String {
     let prelude = home.join("prelude");
     let bin = home.join("bin");
     if pristine {
-        es::write_all(&prelude,PRELUDE);
+        fs::write(&prelude,PRELUDE).or_die("cannot write prelude");
         fs::create_dir(&home.join(DYNAMIC_CACHE)).or_die("cannot create dynamic cache");
     }
     if pristine || ! bin.is_dir() {
         fs::create_dir(&bin).or_die("cannot create output directory");
     }
-    es::read_to_string(&prelude)
+    fs::read_to_string(&prelude).or_die("cannot read prelude")
 }
 
 pub fn get_cache(state: &State) -> PathBuf {
@@ -272,7 +272,8 @@ pub fn add_aliases(aliases: Vec<String>) {
 pub fn get_aliases() -> HashMap<String,String> {
     let alias_file = runner_directory().join("alias");
     if ! alias_file.is_file() { return HashMap::new(); }
-    es::lines(es::open(&alias_file))
+    let contents = fs::read_to_string(&alias_file).or_die("cannot read alias file");
+    contents.lines()
       .filter_map(|s| s.split_at_delim('=').trim()) // split into (String,String)
       .to_map()
 }

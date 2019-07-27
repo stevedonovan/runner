@@ -1,5 +1,5 @@
 use toml;
-use es;
+use std::fs;
 use es::traits::*;
 use std::path::Path;
 
@@ -18,6 +18,6 @@ pub struct Package {
 
 pub fn read_cargo_lock(path: &Path) -> CargoLock {
     let lockf = path.join("Cargo.lock");
-    let body = es::read_to_string(lockf);
+    let body = fs::read_to_string(&lockf).or_die("cannot read Cargo.lock");
     toml::from_str(&body).or_die("can't deserialize")
 }

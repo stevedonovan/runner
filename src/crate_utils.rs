@@ -1,5 +1,5 @@
 
-use super::es;
+use std::fs;
 use std::env;
 use std::path::{Path,PathBuf};
 use toml;
@@ -53,7 +53,7 @@ pub fn cargo_dir(dir: &Path) -> Result<(PathBuf,PathBuf),String> {
 
 // we want the ACTUAL crate name, not the directory/repo name
 pub fn crate_name(cargo_toml: &Path) -> String {
-    let body = es::read_to_string(cargo_toml);
+    let body = fs::read_to_string(cargo_toml).or_die("cannot read Cargo.toml");
     let toml = body.parse::<toml::Value>().or_die("cannot parse Cargo.toml");
     let package = toml.as_table().unwrap()
         .get("package").unwrap();

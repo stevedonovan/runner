@@ -3,7 +3,7 @@
 // for the latest available version in the static cache.
 extern crate json;
 use std::path::{Path,PathBuf};
-use std::fs::File;
+use std::fs::{self,File};
 use std::io::Write;
 
 use crate::cache::static_cache_dir;
@@ -25,7 +25,6 @@ fn read_entry(line: &str) -> Option<(String,String,Version,String,String,String)
         let features = doc["features"].members().map(as_str).join(' ');
         let filenames = &doc["filenames"][0];
         if ! filenames.is_string() {
-            //println!("note: no filenames {}",line);
             return None;
         }
         let path = Path::new(as_str(filenames));
@@ -98,7 +97,8 @@ impl Meta {
 
         let mut v = Vec::new();
         let meta_f = file_name(cache);
-        for line in es::lines(es::open(&meta_f)) {
+        let contents = fs::read_to_string(&meta_f).or_die("cannot read metafile");
+        for line in contents.lines() {
             let parts = line.split(',').to_vec();
             v.push(MetaEntry{
                 package: parts[0].into(),
