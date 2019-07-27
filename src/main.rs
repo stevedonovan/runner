@@ -2,14 +2,14 @@
 //!
 //! Please see [readme](https://github.com/stevedonovan/runner/blob/master/readme.md)
 extern crate easy_shortcuts as es;
-extern crate lapp;
+use lapp;
 #[macro_use] extern crate lazy_static;
 #[macro_use] extern crate serde_derive;
-extern crate semver;
-extern crate isatty;
-extern crate toml;
-extern crate shlex;
-extern crate dirs;
+use semver;
+use isatty;
+use toml;
+use shlex;
+use dirs;
 
 use es::traits::*;
 use std::process;

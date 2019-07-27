@@ -1,9 +1,9 @@
 
 use lapp;
 use es::traits::*;
-use crate_utils;
-use cache;
-use state::State;
+use crate::crate_utils;
+use crate::cache;
+use crate::state::State;
 
 use std::process;
 use std::path::{Path,PathBuf};
@@ -124,7 +124,7 @@ pub fn compile_crate(args: &lapp::Args, state: &State,
 
 pub fn massage_snippet(code: String, prelude: String,
         extern_crates: Vec<String>, wild_crates: Vec<String>, macro_crates: HashSet<String>, body_prelude: String) -> (String,Vec<String>) {
-    use strutil::{after,word_after};
+    use crate::strutil::{after,word_after};
 
     fn indent_line(line: &str) -> String {
         format!("    {}\n",line)

@@ -6,11 +6,11 @@ use std::path::{Path,PathBuf};
 use std::fs::File;
 use std::io::Write;
 
-use cache::static_cache_dir;
+use crate::cache::static_cache_dir;
 use es;
 use es::traits::*;
 use super::crate_utils::proper_crate_name;
-use cargo_lock;
+use crate::cargo_lock;
 
 use semver::Version;
 
@@ -19,7 +19,7 @@ fn as_str(v: &json::JsonValue) -> &str {
 }
 
 fn read_entry(line: &str) -> Option<(String,String,Version,String,String,String)> {
-    use strutil::next_2;
+    use crate::strutil::next_2;
 
     if let Ok(doc) = json::parse(line) {
         let features = doc["features"].members().map(as_str).join(' ');

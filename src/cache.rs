@@ -8,12 +8,12 @@ use std::path::{Path,PathBuf};
 use std::collections::HashMap;
 use std::io::Write;
 
-use crate_utils;
-use meta;
+use crate::crate_utils;
+use crate::meta;
 
 use crate_utils::UNSTABLE;
 
-use state::State;
+use crate::state::State;
 
 const STATIC_CACHE: &str = "static-cache";
 const DYNAMIC_CACHE: &str = "dy-cache";
@@ -134,7 +134,7 @@ pub fn static_cache_dir_check() -> PathBuf {
 }
 
 pub fn build_static_cache() -> bool {
-    use meta::*;
+    use crate::meta::*;
     let mut m = Meta::new();
     match cargo_build(false) {
         None => return false,

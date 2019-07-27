@@ -6,6 +6,7 @@ description = "Utility for running Rust snippets"
 
 documentation = "https://docs.rs/crate/runner"
 repository = "https://github.com/stevedonovan/runner"
+edition = "2018"
 
 readme = "readme.md"
 
