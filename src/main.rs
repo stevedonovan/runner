@@ -76,29 +76,50 @@ Compile and run small Rust snippets
   <args> (string...) arguments to pass to program
 ";
 
+fn read_file_with_arg_comment(args: &mut lapp::Args, file: &Path) -> (String,bool) {
+    let contents = fs::read_to_string(file).or_die("cannot read file");
+    let first_line = contents.lines().next().or_die("empty file");
+    let arg_comment = "//: ";
+    let has_arg_comment = first_line.starts_with(arg_comment);
+    if has_arg_comment {
+        let default_args = &first_line[arg_comment.len()..];
+        let default_args = shlex::split(default_args).or_die("bad comment args");
+        args.parse_command_line(default_args).or_die("cannot parse comment args");
+        args.clear_used();
+    }
+    (contents,has_arg_comment)
+
+}
+
 fn main() {
     let mut args = lapp::Args::new(USAGE);
     args.parse_spec().or_die("bad spec");
     let env = Path::new("env.rs");
     let env_prelude = if env.exists() {
-        let contents = fs::read_to_string(env).or_die("cannot read env.rs");
-        {
-            let first_line = contents.lines().next().or_die("empty env.rs");
-            let arg_comment = "//ARGS ";
-            if first_line.starts_with(arg_comment) {
-                let default_args = &first_line[arg_comment.len()..];
-                let default_args = shlex::split(default_args).or_die("bad default args");
-                args.parse_command_line(default_args).or_die("cannot parse default args");
-                args.clear_used();
-            }
-        }
+        let (contents,_) = read_file_with_arg_comment(&mut args, env);
         Some(contents)
     } else {
         None
     };
 
-    args.parse_env_args().or_die("bad command line");
-    
+    args.parse_env_args().or_die("bad command line"); 
+
+    let program_contents = if let Ok(program) = args.get_string_result("program") {
+        let prog = Path::new(&program);
+        if prog.is_file() && program.ends_with(".rs") {
+            args.clear_used();
+            let (contents,has_arg_comment) = read_file_with_arg_comment(&mut args, prog);
+            if has_arg_comment {
+                args.parse_env_args().or_die("bad command line");
+            }
+            Some(contents)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
     let mut prelude = cache::get_prelude();
     if let Some(env_prelude) = env_prelude {
         prelude.insert_str(0, &env_prelude);
@@ -289,7 +310,7 @@ fn main() {
         s
     } else { // otherwise, just a file
         expression = false;
-        fs::read_to_string(&file).or_die("cannot read file")
+        program_contents.or_die("no .rs file")
     };
 
     // ALL executables go into the Runner bin directory...
