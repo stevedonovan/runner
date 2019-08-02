@@ -136,61 +136,59 @@ pub fn massage_snippet(code: String, prelude: String,
     let mut deduced_externs = Vec::new();
 
     body += &body_prelude;
-    {
-        if extern_crates.len() > 0 {
-            let aliases = cache::get_aliases();
-            for c in &extern_crates {
-                prefix += &if let Some(aliased) = aliases.get(c) {
-                    format!("extern crate {} as {};\n",aliased,c)
-                } else {
-                    let mac = if macro_crates.contains(c) {"#[macro_use] "} else {""};
-                    format!("{}extern crate {};\n",mac,c)
-                };
-            }
-            for c in wild_crates {
-                prefix += &format!("use {}::*;\n",c);
-            }
+    if extern_crates.len() > 0 {
+        let aliases = cache::get_aliases();
+        for c in &extern_crates {
+            prefix += &if let Some(aliased) = aliases.get(c) {
+                format!("extern crate {} as {};\n",aliased,c)
+            } else {
+                let mac = if macro_crates.contains(c) {"#[macro_use] "} else {""};
+                format!("{}extern crate {};\n",mac,c)
+            };
         }
-        let mut lines = code.lines();
-        let mut first = true;
-        for line in lines.by_ref() {
-            let line = line.trim_start();
-            if first { // files may start with #! shebang...
-                if line.starts_with("#!/") {
-                    continue;
-                }
-                first = false;
-            }
-            // crate import, use should go at the top.
-            // Particularly need to force crate-level attributes to the top
-            // These must not be in the `run` function we're generating
-            if let Some(rest) = after(line,"#[macro_use") {
-                if let Some(crate_name) = word_after(rest,"extern crate ") {
-                    deduced_externs.push(crate_name);
-                }
-                prefix += line;
-                prefix.push('\n');
-            } else
-            if line.starts_with("extern ") || line.starts_with("use ") {
-                if let Some(crate_name) = word_after(line,"extern crate ") {
-                    deduced_externs.push(crate_name);
-                }
-                prefix += line;
-                prefix.push('\n');
-            } else
-            if line.starts_with("#![") {
-                // inner attributes really need to be at the top of the file
-                crate_begin += line;
-                crate_begin.push('\n');
-            } else
-            if line.len() > 0 {
-                body += &indent_line(line);
-                break;
-            }
+        for c in wild_crates {
+            prefix += &format!("use {}::*;\n",c);
         }
-        // and indent the rest!
-        body.extend(lines.map(indent_line));
     }
+    let mut lines = code.lines();
+    let mut first = true;
+    for line in lines.by_ref() {
+        let line = line.trim_start();
+        if first { // files may start with #! shebang...
+            if line.starts_with("#!/") {
+                continue;
+            }
+            first = false;
+        }
+        // crate import, use should go at the top.
+        // Particularly need to force crate-level attributes to the top
+        // These must not be in the `run` function we're generating
+        if let Some(rest) = after(line,"#[macro_use") {
+            if let Some(crate_name) = word_after(rest,"extern crate ") {
+                deduced_externs.push(crate_name);
+            }
+            prefix += line;
+            prefix.push('\n');
+        } else
+        if line.starts_with("extern ") || line.starts_with("use ") {
+            if let Some(crate_name) = word_after(line,"extern crate ") {
+                deduced_externs.push(crate_name);
+            }
+            prefix += line;
+            prefix.push('\n');
+        } else
+        if line.starts_with("#![") {
+            // inner attributes really need to be at the top of the file
+            crate_begin += line;
+            crate_begin.push('\n');
+        } else
+        if line.len() > 0 {
+            body += &indent_line(line);
+            break;
+        }
+    }
+    // and indent the rest!
+    body.extend(lines.map(indent_line));
 
     deduced_externs.extend(extern_crates);
     deduced_externs.sort();
