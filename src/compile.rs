@@ -123,8 +123,8 @@ pub fn compile_crate(args: &lapp::Args, state: &State,
 }
 
 pub fn massage_snippet(code: String, prelude: String,
-        extern_crates: Vec<String>, wild_crates: Vec<String>, macro_crates: HashSet<String>, body_prelude: String) -> (String,Vec<String>) {
-    use crate::strutil::{after,word_after};
+        extern_crates: Vec<String>, wild_crates: Vec<String>, macro_crates: HashSet<String>, body_prelude: String, is2018: bool) -> (String,Vec<String>) {
+    use crate::strutil::{after,word_after,split};
 
     fn indent_line(line: &str) -> String {
         format!("    {}\n",line)
@@ -154,8 +154,8 @@ pub fn massage_snippet(code: String, prelude: String,
     let mut first = true;
     for line in lines.by_ref() {
         let line = line.trim_start();
-        if first { // files may start with #! shebang...
-            if line.starts_with("#!/") {
+        if first { // files may start with #! shebang or comment...
+            if line.starts_with("#!/") || line.starts_with("//") {
                 continue;
             }
             first = false;
@@ -173,6 +173,14 @@ pub fn massage_snippet(code: String, prelude: String,
         if line.starts_with("extern ") || line.starts_with("use ") {
             if let Some(crate_name) = word_after(line,"extern crate ") {
                 deduced_externs.push(crate_name);
+            }
+            if is2018 {
+                if let Some(path) = word_after(line,"use ") {
+                    let (name,rest) = split(&path,':');
+                    if ! ["std","core","alloc","crate"].contains(&name) || rest == "" {
+                        deduced_externs.push(name.into());
+                    }
+                }
             }
             prefix += line;
             prefix.push('\n');

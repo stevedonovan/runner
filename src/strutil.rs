@@ -26,3 +26,12 @@ pub fn next_2<T, I: Iterator<Item=T>> (mut iter: I) -> (T,T) {
     (iter.next().unwrap(), iter.next().unwrap())
 }
 
+// split into two at a delimiter
+pub fn split(txt: &str, delim: char) -> (&str,&str) {
+    if let Some(idx) = txt.find(delim) {
+        (&txt[0..idx], &txt[idx+1..])
+    } else {
+        (txt,"")
+    }
+}
+

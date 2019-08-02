@@ -344,7 +344,7 @@ fn main() {
         };
 
         let (massaged_code, deduced_externs)
-            = massage_snippet(code, maybe_prelude, extern_crates, wild_crates, macro_crates, extra);
+            = massage_snippet(code, maybe_prelude, extern_crates, wild_crates, macro_crates, extra, edition=="2018");
         code = massaged_code;
         externs = deduced_externs;
         if ! expression {
