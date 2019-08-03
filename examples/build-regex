@@ -1,11 +1,7 @@
-runner -C --cfg 'feature="default"' --cfg 'feature="use_std"' libc
-runner -C --libc memchr
-runner -C --libc thread-id
-runner -C --cfg 'feature="std"'  void
-runner -C utf8-ranges
-runner -C unreachable
+runner -C memchr
 runner -C aho-corasick
+runner -C utf8-ranges
 runner -C lazy_static
-runner -C thread_local
+runner -xlazy_static -C thread_local
 runner -C regex-syntax
 runner -C regex
