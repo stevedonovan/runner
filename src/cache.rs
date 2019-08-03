@@ -25,13 +25,13 @@ const PRELUDE: &str = "
 #![allow(unused_variables)]
 #![allow(dead_code)]
 #![allow(unused_macros)]
-use std::fs;
+use std::{fs,io,env};
 use std::fs::File;
-use std::io;
 use std::io::prelude::*;
-use std::env;
 use std::path::{PathBuf,Path};
 use std::collections::HashMap;
+use std::time::Duration;
+use std::thread;
 
 macro_rules! debug {
     ($x:expr) => {
