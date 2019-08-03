@@ -47,7 +47,7 @@ Compile and run small Rust snippets
   -c, --compile-only  will not run program and copies it into ~/.cargo/bin
   -r, --run  don't compile, only re-run
   -S, --no-simplify by default, attempt to simplify rustc error messages
-  -E, --edition (default '2015') Rust edition 
+  -E, --edition (default '2018') Rust edition 
 
   Cache Management:
   --add  (string...) add new crates to the cache
