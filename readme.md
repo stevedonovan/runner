@@ -34,6 +34,10 @@ documentation, so `runner` allows you to copy those snippets into an editor
 and directly run them (I bind 'run' for Rust projects to `runner ...` in
 my favourite editor.)
 
+You can use `?` in snippets instead of the ubiquitous and awful `unwrap`, since the boilerplate
+encloses code in a function that returns `Result<(),Box<Error+Sync+Send>>` which is compatible with
+any error return.
+
 A special variable `args` is available containing any arguments passed to the program:
 
 ```
@@ -54,15 +58,6 @@ $ ./hello
 Hello, World!
 ```
 
-Arguments can be conveniently accessed with a provided `args` array:
-
-```
-$ cat hello.rs
-println!("Hello {}", args[1]);
-$ runner hello.rs world
-Hello world
-```
-
 `runner` adds the necessary boilerplate and creates a proper Rust program in `~/.cargo/.runner/bin`,
 prefixed with a prelude, which is initially:
 
@@ -71,33 +66,30 @@ prefixed with a prelude, which is initially:
 #![allow(unused_variables)]
 #![allow(dead_code)]
 #![allow(unused_macros)]
-use std::fs;
+use std::{fs,io,env};
 use std::fs::File;
-use std::io;
 use std::io::prelude::*;
-use std::env;
 use std::path::{PathBuf,Path};
 use std::collections::HashMap;
+use std::time::Duration;
+use std::thread;
 
 macro_rules! debug {
     ($x:expr) => {
-        println!(\"{} = {:?}\",stringify!($x),$x);
+        println!("{} = {:?}",stringify!($x),$x);
     }
 }
 ```
 
-
 After first invocation of `runner`, this is found in `~/.cargo/.runner/prelude`;
 you can edit it later with `runner --edit-prelude`.
-
-If upgrading from earlier versions of `runner` you may get annoying unused variable warnings
-with `args` - just add a "![allow(unused_variables)]" line to your prelude.
 
 `debug!` saves typing: `debug!(my_var)` is equivalent to `println!("my_var = {:?}",my_var)`.
 
 As an experimental feature, `runner` will also do some massaging of `rustc` errors.
 They are usually very good, but involve fully qualified type names.
 It reduces `std::` references to something simpler.
+
 This is a snippet which a Java programmer would find easy to write - declare that type explicitly,
 and assume that the important verb is "set":
 
@@ -122,13 +114,7 @@ out in full glory (as you can see by running with `-S`):
 ## Adding External Crates
 
 As you can see, `runner` is very much about playing with small code snippets. By
-default it links the snippet _dynamically_ which is significantly faster. This
-hello-world snippet takes 0.34s to build on my machine, but building statically with
-`runner -s print.rs` takes 0.55s.
-
-In both cases, the executable goes into the same directory as the expanded code  - but
-the dynamically-linked version can't be run standalone unless you make the Rust runtime
-available globally.
+default it links the snippet _dynamically_ which is significantly faster.
 
 The static option is much more convenient. You can easily create a static
 cache with some common crates:
@@ -138,11 +124,12 @@ $ runner --add "time json regex"
 ```
 
 You can add as many crates if you like - number of available dependencies doesn't
-slow down the linker. Thereafter, you may refer to these crates in snippets:
+slow down the linker. Thereafter, you may refer to these crates in snippets. Note that
+by default, `runner` uses 2018 edition since 0.4.0.
 
 ```rust
 // json.rs
-extern crate json;
+use json;
 
 let parsed = json::parse(r#"
 
@@ -169,55 +156,19 @@ And then build statically and run (any extra arguments are passed to the program
 $ runner -s json.rs
 {"code":200,"success":true,"payload":{"features":["awesome","easyAPI","lowLearningCurve"]}}
 ```
-You can use `?` in snippets instead of the ubiquitous and awful `unwrap`, since the boilerplate
-encloses code in a function that returns `Result<(),Box<Error>>` which is compatible with
-any error return.
 
-`runner` provides various utilities for managing the static cache:
+A convenient new feature is "argument lines" - if the first line of `json.rs` was
 
 ```
-$ runner -h
-Compile and run small Rust snippets
-  -s, --static build statically (default is dynamic)
-  -O, --optimize optimized static build
-  -e, --expression evaluate an expression
-  -i, --iterator iterate over an expression
-  -n, --lines evaluate expression over stdin; the var 'line' is defined
-  -x, --extern... (string) add an extern crate to the snippet
-  -X, --wild... (string) like -x but implies wildcard import
-  -p, --prepend (default '') put this statement in body (useful for -i etc)
-  -N, --no-prelude do not include runner prelude
-  -c, --compile-only  will not run program and copies it into current dir
-  -r, --run  don't compile, only re-run
-  -S, --simplify attempt to simplify rustc error messages
-
-  Cache Management:
-  --add  (string...) add new crates to the cache
-  --update update all, or a specific package given as argument
-  --edit  edit the static cache Cargo.toml
-  --build rebuild the static cache
-  --cleanup clean out stale rlibs from cache
-  --crates current crates and their versions in cache
-  --doc  display documentation (any argument will be specific crate name)
-  --edit-prelude edit the default prelude for snippets
-  --alias (string...) crate aliases in form alias=crate_name (used with -x)
-
-  Dynamic compilation:
-  -P, --crate-path show path of crate source in Cargo cache
-  -C, --compile  compile crate dynamically (limited)
-  -L, --link (string) path for extra libraries
-  --cfg... (string) pass configuration variables to rustc
-  --features (string...) enable features in compilation
-  --libc  link dynamically against libc (special case)
-  (--extern is used to explicitly link in a crate by name)
-
-  -v, --verbose describe what's happening
-  -V, --version version of runner
-
-  <program> (string) Rust program, snippet or expression
-  <args> (string...) arguments to pass to program
+//: -s
 ```
 
+then any `runner` arguments specified after "//:" will be merged in with the command-line arguments.
+It is now possible to simply invoke using `runner json.rs`. It's better to keep any special build
+instructions in the file itself, and it means that an editor run action bound to `runner FILE` can be
+made to work in all cases.
+
+`runner` provides various utilities for managing the static cache. 
 You can say `runner --edit` to edit the static cache `Cargo.toml`, and `runner --build` to
 rebuild the cache afterwards. `runner update` will update all the dependencies in the
 cache, and `runner update package` will update a _particular_ package - follow this
@@ -228,7 +179,7 @@ so using `-sO` you can build snippets in release mode. Documentation is also bui
 for the cache, and `runner --doc` will open that documentation in the browser. (It's
 always nice to have local docs, especially in bandwidth-starved situations.)
 
-If you want docs for a specific crate `NAME`, then `runner --doc crate NAME` will work.
+If you want docs for a specific crate `NAME`, then `runner --doc NAME` will work.
 Remember that the Rust documentation generated has a fast offline searchable
 index!
 
@@ -248,61 +199,7 @@ The `-c` flag only compiles the program or snippet, and copies it to `~/.cargo/b
 explicitly with `-c` or implicitly with default operation.
 
 Plain Rust source files (which already have `fn main`) are of course supported, but you
-will need the `--extern` flag to bring in any external crates from the static cache.
-
-## Dynamic Linking
-
-It would be good to provide such an experience for the dynamic-link case, since
-it is faster. There is in fact a dynamic cache as well but support for linking
-against external crates dynamically is very basic. It works fine for crates that
-don't have any external depdendencies, e.g. this creates a `libjson.so` in the
-dynamic cache:
-
-```
-$ runner -C json
-```
-And then you can run the `json.rs` example without `-s`.
-
-The `--compile` action takes three kinds of arguments:
-
-  - a crate name that is already loaded and known to Cargo
-  - a Cargo directory
-  - a Rust source file - the crate name is the file name without extension.
-
-Dynamic linking is not a priority for
-Rust tooling at the moment. So we have to build more elaborate libraries without the
-help of Cargo. (The following assumes that you have already brought in `regex` for a Cargo project,
-so that the Cargo cache is populated, e.g. with `runner --add regex`)
-
-
-```
-runner -C --features "default use_std" libc
-runner -C --libc --features "default use_std"  memchr
-runner -C --libc thread-id
-runner -C --features std  void
-runner -C utf8-ranges
-runner -xvoid -C unreachable
-runner -C aho-corasick
-runner -C lazy_static
-runner -C -xlazy_static thread_local
-runner -C regex-syntax
-runner -C -xlazy_static regex
-
-```
-This script drives home how tremendously irritating life in Rust would be without Cargo.
-We have to track the dependencies, ensure that the correct default features are enabled in the
-compilation, and special-case crates which directly link to `libc`.
-
-However, the results feel worthwhile. Compiling the first `regex` documented example:
-
-```rust
-extern crate regex;
-use regex::Regex;
-let re = Regex::new(r"^\d{4}-\d{2}-\d{2}$").unwrap();
-assert!(re.is_match("2014-01-01"));
-```
-With a static build (`-s`) I get 0.90s on this machine, and 0.47s with dynamic linking.
-On my souped-up office machine, it's 0.62s versus 0.32s.
+will need the `--extern` (`-x`) flag to bring in any external crates from the static cache.
 
 A useful trick - if you want to look at the `Cargo.toml` of an already downloaded crate
 to find out dependencies and features, then this command will open it for you:
@@ -310,11 +207,6 @@ to find out dependencies and features, then this command will open it for you:
 ```
 favorite-editor $(runner -P some-crate)/Cargo.toml
 ```
-There are limitations to dynamic linking currently - crates which are "no std"
-(and don't provide a feature to turn this off) cannot be compiled.  Also, remember
-that all invocations of `runner -C` end up with shared libraries placed in one
-directory called the 'dynamic cache' - there can only be one crate called 'libs'
-for example.
 
 ## Rust on the Command-line
 
@@ -332,7 +224,7 @@ error[E0277]: the trait bound `{integer}: Mul<{float}>` is not satisfied
 
 Likewise, you have to say `1.2f64.sin()` because `1.2` has ambiguous type.
 
-(Please notice that the trait `std::ops::Mul` is presented in _simplified form_.)
+(Note that the trait `std::ops::Mul` is presented in _simplified form_ by default)
 
 `--expression` is very useful if you quickly want to find out how Rust
 will evaluate an expression - we do a debug print for maximum flexibility.
@@ -447,7 +339,7 @@ $ runner -s --macro r4 -i 'iterate![for x in 0..4; yield x]'
 
 Small snippets like these are faster if the crates can be linked dynamically, so
 after `runner -C r4` to build a shared library in the dynamic cast, you can run this
-without the `-s`. The compile step goes down from 0.773s to 0.507s.
+without the `-s`.
 
 ```
 $ runner -Xto_vec -Mr4 -e 'iterate![for i in 0..2; for j in 0..2; yield (i,j)].to_vec()'
@@ -467,24 +359,6 @@ $  runner -p 'let nums=0..5' -i 'nums.clone().zip(nums.skip(1))'
 (3, 4)
 ```
 
-As a bonus feature, environment variables will be expanded in the 'expression'.
-Here is a one-liner equivalent of the `which` command - with the bonus that it
-finds _all_ matches of the program on the path.
-
-```
-$ runner -i '$PATH.split(":").map(|s| PathBuf::from(s).join("runner")).filter(|p| p.exists())'
-"/home/steve/.cargo/bin/runner"
-```
-
-Any references like `$1` refer to any following command-line arguments:
-
-```
-$ runner -e '$2' 10 20 30
-"20"
-```
-
-This is useful as a way to get large awkward strings into your expressions.
-
 If you can get away with dynamic linking, then `runner` can make it
 easy to test a module interactively. In this way you get much of the
 benefit of a fully interactive interpreter (a REPL):
@@ -499,7 +373,7 @@ building crate 'universe' at universe.rs
 $ runner -xuniverse -e "universe::answer()"
 42
 ```
-This provides another way to get to play with big predefined strings:
+This provides a way to get to play with big predefined strings:
 
 ```
 $ cat > text.rs
@@ -515,7 +389,6 @@ Some(14)
 Consider the example for the [filetime](https://docs.rs/filetime) crate:
 
 ```rust
-// runner.rs
 use std::fs;
 use filetime::FileTime;
 
@@ -538,19 +411,72 @@ println!("{}", mtime.seconds());
 After `runner --add filetime`, this crate is in your static cache. And `runner --doc filetime`
 will give you its local documentation.
 
-However, it can't be compiled directly, for two reasons:
-  - `extern crate filetime` is implicit
-  - `use std::fs` is already in the runner prelude.
+However, it can't be compiled directly, for the reason that `use std::fs` is already in the runner prelude.
 
 So we need to say:
 
 ```
-$ runner -s --no-prelude --extern filetime filetime.rs
+$ runner -s --no-prelude filetime.rs
 1506778536.945440909s
 1506778536
 945440909
 1506778536
 ```
 
-Or if you're in a hurry: `runner -sNx filetime filetime.rs`.
+Or if you're in a hurry: `runner -sN filetime.rs`.
 
+As always, can always put these arguments in a first comment like so "//: -sN".
+
+## Dymamic Compilation of Crates
+
+It would be good to provide such an experience for the dynamic-link case, since
+it is faster. There is in fact a dynamic cache as well but support for linking
+against external crates dynamically is very basic. It works fine for crates that
+don't have any external depdendencies, e.g. this creates a `libjson.so` in the
+dynamic cache:
+
+```
+$ runner -C json
+```
+And then you can run the `json.rs` example without `-s`.
+
+The `--compile` action takes three kinds of arguments:
+
+  - a crate name that is already loaded and known to Cargo
+  - a Cargo directory
+  - a Rust source file - the crate name is the file name without extension.
+
+Dynamic linking is not a priority for
+Rust tooling at the moment. So we have to build more elaborate libraries without the
+help of Cargo. (The following assumes that you have already brought in `regex` for a Cargo project,
+so that the Cargo cache is populated, e.g. with `runner --add regex`)
+
+
+```
+runner -C memchr
+runner -C aho-corasick
+runner -C utf8-ranges
+runner -C lazy_static
+runner -xlazy_static -C thread_local
+runner -C regex-syntax
+runner -C regex
+
+```
+This script drives home how tremendously irritating life in Rust would be without Cargo.
+We have to track the dependencies, ensure that the correct default features are enabled in the
+compilation, and special-case crates which directly link to `libc`.
+
+However, the results feel worthwhile. Compiling the first `regex` documented example:
+
+```rust
+use regex::Regex;
+let re = Regex::new(r"^\d{4}-\d{2}-\d{2}$").unwrap();
+assert!(re.is_match("2014-01-01"));
+```
+With a static build (`-s`) I get 0.56s on this machine, and 0.25s with dynamic linking.
+
+There are limitations to dynamic linking currently - crates which are "no std"
+(and don't provide a feature to turn this off) cannot be compiled.  Also, remember
+that all invocations of `runner -C` end up with shared libraries placed in one
+directory called the 'dynamic cache' - there can only be one crate called 'libs'
+for example.
