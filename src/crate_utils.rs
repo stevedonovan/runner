@@ -51,14 +51,27 @@ pub fn cargo_dir(dir: &Path) -> Result<(PathBuf,PathBuf),String> {
     Err("No Cargo project in this path".into())
 }
 
+pub struct CrateInfo {
+    pub name: String,
+    pub edition: String,
+
+}
+
 // we want the ACTUAL crate name, not the directory/repo name
-pub fn crate_name(cargo_toml: &Path) -> String {
+pub fn crate_info (cargo_toml: &Path) -> CrateInfo {
     let body = fs::read_to_string(cargo_toml).or_die("cannot read Cargo.toml");
     let toml = body.parse::<toml::Value>().or_die("cannot parse Cargo.toml");
     let package = toml.as_table().unwrap()
         .get("package").unwrap();
-    package.get("name").unwrap()
-        .as_str().unwrap().to_string()
+    let name = package.get("name").unwrap()
+        .as_str().unwrap().to_string();
+    let edition = match package.get("edition") {
+        None => "2015",
+        Some(e) => e.as_str().unwrap()
+    }.to_string();
+    CrateInfo {
+        name, edition,
+    }
 }
 
 

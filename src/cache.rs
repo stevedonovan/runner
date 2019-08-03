@@ -215,7 +215,7 @@ fn maybe_cargo_dir(name: &str) -> Option<(String,PathBuf)> {
     }
     let full_path = path.canonicalize().or_die("bad path, man!");
     if let Ok((full_path,cargo_toml)) = crate_utils::cargo_dir(&full_path) {
-        let name = crate_utils::crate_name(&cargo_toml);
+        let name = crate_utils::crate_info(&cargo_toml).name;
         Some((name,full_path))
     } else {
         None

@@ -218,7 +218,7 @@ fn main() {
     // Dynamically linking crates (experimental!)
     let (print_path, compile) = (b("crate-path"),b("compile"));
     if print_path || compile {
-        let state = State::dll(optimized, &edition);
+        let mut state = State::dll(optimized, &edition);
         // plain-jane name is a crate name!
         if crate_utils::plain_name(&first_arg) {
             // but is it one of Ours? Then we definitely know what the
@@ -228,11 +228,14 @@ fn main() {
                 if e.path == Path::new("") {
                     args.quit("please run 'runner --build' to update metadata");
                 }
+                // will be <cargo dir>/src/FILE.rs
+                let path = e.path.parent().unwrap().parent().unwrap();
                 if print_path {
-                   // will be <cargo dir>/src/FILE.rs
-                    let path = e.path.parent().unwrap().parent().unwrap();
                     println!("{}",path.display());
                 } else {
+                    let ci = crate_utils::crate_info(&path.join("Cargo.toml"));
+                    // respect the crate's edition!
+                    state.edition = ci.edition;
                     // TBD can override --features with features actually
                     // used to build this crate
                     let build_features = &e.features;
@@ -255,8 +258,10 @@ fn main() {
                         // this is somewhat dodgy, since the default location can be changed
                         // Safest bet is to add the crate to the runner static cache
                         let source = path.join("src").join("lib.rs");
-                        let name = crate_utils::crate_name(&cargo_toml);
-                        (name, source)
+                        let ci = crate_utils::crate_info(&cargo_toml);
+                        // respect the crate's edition!
+                        state.edition = ci.edition;
+                        (ci.name, source)
                     },
                     Err(msg) => args.quit(&msg)
                 }
