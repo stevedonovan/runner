@@ -44,10 +44,11 @@ Compile and run small Rust snippets
   -M, --macro... (string) like -x but implies macro import
   -p, --prepend (default '') put this statement in body (useful for -i etc)
   -N, --no-prelude do not include runner prelude
-  -c, --compile-only  will not run program and copies it into ~/.cargo/bin
+  -c, --compile-only  compiles program and copies to output dir
+  -o, --output (path default cargo) change the default output dir for compilation
   -r, --run  don't compile, only re-run
   -S, --no-simplify by default, attempt to simplify rustc error messages
-  -E, --edition (default '2018') Rust edition 
+  -E, --edition (default '2018') Rust edition
 
   Cache Management:
   --add  (string...) add new crates to the cache
@@ -267,7 +268,7 @@ fn main() {
                 }
             } else { // should be just a Rust source file
                 if file.extension().or_die("expecting extension") != "rs" {
-                    args.quit("expecting Rust source file");
+                    args.quit("expecting known crate, dir containing Cargo.toml or Rust source file");
                 }
                 let name = crate_utils::path_file_name(&file.with_extension(""));
                 (name, file.clone())
@@ -353,7 +354,7 @@ fn main() {
         code = massaged_code;
         externs = deduced_externs;
         if ! expression {
-            bin.push(&file);
+            bin.push(file.file_name().unwrap());
             bin.set_extension("rs");
         } else { // we make up a name...
             bin.push("tmp.rs");
@@ -379,7 +380,7 @@ fn main() {
         }
     } else {
         if ! compile_crate(&args,&state,"",&rust_file,Some(&program), externs, Vec::new()) {
-            return;
+            process::exit(1);
         }
         if verbose {
             println!("compiled {:?} successfully",rust_file);
@@ -388,13 +389,19 @@ fn main() {
 
     if b("compile-only") {
         let file_name = rust_file.file_name().or_die("no file name?");
-        let home = crate_utils::cargo_home().join("bin");
-        if ! home.is_dir() {
-            // With Windows, standalone installer does not create this directory
-            // (may well be a Bugge)
-            fs::create_dir(&home).or_die("could not create Cargo bin directory");
-            println!("creating Cargo bin directory {}\nEnsure it is on your PATH",home.display());
-        }
+        let out_dir = args.get_path("output");
+        let home = if out_dir == Path::new("cargo") {
+            let home = crate_utils::cargo_home().join("bin");
+            if ! home.is_dir() {
+                // With Windows, standalone installer does not create this directory
+                // (may well be a Bugge)
+                fs::create_dir(&home).or_die("could not create Cargo bin directory");
+                println!("creating Cargo bin directory {}\nEnsure it is on your PATH",home.display());
+            }
+            home
+        } else {
+            out_dir
+        };
         let here = home.join(file_name).with_extension(exe_suffix);
         println!("Copying {} to {}",program.display(),here.display());
         fs::copy(&program,&here).or_die("cannot copy program");
@@ -416,8 +423,12 @@ fn main() {
             builder.env("LD_LIBRARY_PATH",format!("{}:{}",*RUSTUP_LIB,ch.display()));
         }
     }
-    builder.args(&program_args)
+    let status = builder.args(&program_args)
         .status()
         .or_then_die(|e| format!("can't run program {:?}: {}",program,e));
+
+    if ! status.success() {
+        process::exit(status.code().unwrap_or(-1));
+    }
 }
 
