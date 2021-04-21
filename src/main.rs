@@ -107,7 +107,10 @@ fn main() {
 
     let program_contents = if let Ok(program) = args.get_string_result("program") {
         let prog = Path::new(&program);
-        if prog.is_file() && program.ends_with(".rs") {
+        if program.ends_with(".rs") {
+            if ! prog.is_file() {
+                args.quit("file does not exist");
+            }
             args.clear_used();
             let (contents,has_arg_comment) = read_file_with_arg_comment(&mut args, prog);
             if has_arg_comment {
