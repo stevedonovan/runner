@@ -136,6 +136,11 @@ impl Meta {
             .map(|e| if debug {e.debug_name.clone()} else {e.release_name.clone()})
     }
 
+    pub fn is_crate_present(&self, name: &str) -> bool {
+        let entries = self.get_meta_entries(name);
+        entries.len() > 0
+    }
+
     pub fn dump_crates (&mut self, maybe_names: Vec<String>, verbose: bool) {
         if maybe_names.len() > 0 {
             let packages = if verbose {

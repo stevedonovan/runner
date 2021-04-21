@@ -159,7 +159,9 @@ fn main() {
     let crates = args.get_strings("add");
     if crates.len() > 0 {
         cache::create_static_cache(&crates);
-        return;
+        if program_contents.is_none() {
+            return;
+        }
     }
 
     // operations on the static cache

@@ -158,33 +158,55 @@ pub fn create_static_cache(crates: &[String]) {
         KITCHEN_SINK.split_whitespace().map(|s| s.into()).collect()
     } else {
         crates.to_vec()
-    };    
+    };
+
+    let mut home = runner_directory();
+    env::set_current_dir(&home).or_die("cannot change to home directory");
+
+    let mdata = if ! exists {
+        if ! cargo(&["new","--bin",STATIC_CACHE]) {
+            es::quit("cannot create static cache");
+        }
+        None
+    } else {
+        Some(get_metadata())
+    };
+    let check_crate = |s: &str| if let Some(m) = &mdata {
+        m.is_crate_present(s)
+    } else {
+        false
+    }; 
 
     // there are three forms possible
     // a plain crate name - we assume latest version ('*')
     // a name=vs - we'll ensure it gets quoted properly
     // a local Cargo project
-    let crates_vs = crates.iter().map(|c| {
+    let crates_vs = crates.iter().filter_map(|c| {
         if let Some(idx) = c.find('=') {
             // help with a little bit of quoting...
             let (name,vs) = (&c[0..idx], &c[(idx+1)..]);
-            (name.to_string(),vs.to_string(),true)
+            Some((name.to_string(),vs.to_string(),true))
         } else {
+            // explicit name but no version, see if we already have this crate
             if let Some((name,path)) = maybe_cargo_dir(&c) {
                 // hello - this is a local Cargo project!
-                (name, path.to_str().unwrap().to_string(),false)
+                if check_crate(&name) {
+                    None
+                } else {
+                    Some((name, path.to_str().unwrap().to_string(),false))
+                }
             } else { // latest version of crate
-                (c.to_string(), '*'.to_string(),true)
+                if check_crate(c) {
+                    None
+                } else {
+                    Some((c.to_string(), '*'.to_string(),true))
+                }
             }
         }
     }).to_vec();
 
-    let mut home = runner_directory();
-    env::set_current_dir(&home).or_die("cannot change to home directory");
-    if ! exists {
-        if ! cargo(&["new","--bin",STATIC_CACHE]) {
-            es::quit("cannot create static cache");
-        }
+    if crates_vs.len() == 0 {
+        return;
     }
 
     home.push(STATIC_CACHE);
