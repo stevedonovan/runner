@@ -1,6 +1,5 @@
 //: -s
 // filetime.rs
-use std::fs;
 use filetime::FileTime;
 
 let metadata = fs::metadata("filetime.rs").unwrap();

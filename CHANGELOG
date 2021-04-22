@@ -1,3 +1,24 @@
+## 0.5.0 Release
+
+### New Features
+
+  - `--run` re-run without re-compilation
+  - `--add` if crate already present, not an error. Will run available program (Issue #7)
+  - `--simplify` for *not* simplifying error messages, which now happens by default
+    (`std::string::String` becomes just `String`)
+  - `args` available to snippets
+  - `--crates` output is in same format as `[dependencies]` section of Cargo.toml
+  - `--crates` with `--verbose` shows dependency tree
+  - Arg comments now start with '//: ' and can appear in source file
+  - `Duration` and `thread` added to prelude
+
+### Fixes
+
+  - Sometimes Windows standalone installer does not create Cargo bin dir
+  - Detect 'unstable' using 'nightly'
+  - Do not force rustc colours if not outputing to a terminal
+  - Issue #9 (use basename) and ensure non-zero status code on failure
+
 ## 0.3.0 Release
 
 ### New Features
