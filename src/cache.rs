@@ -52,7 +52,7 @@ const KITCHEN_SINK: &str = "
 // Windows shell quoting is a mess, so we make single quotes
 // become double quotes in expressions
 pub fn quote(s: String) -> String {
-    if cfg!(windows) {
+    if cfg!(all(windows, not(feature = "no_quote_replacement"))) {
         s.replace("\'","\"")
     } else {
         s
