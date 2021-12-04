@@ -14,6 +14,9 @@ keywords = ["compiler-runner","scripting","snippets"]
 
 license = "MIT"
 
+[features]
+no_quote_replacement = []
+
 [dependencies]
 easy-shortcuts = "0.3"
 lapp = "0.4"
