@@ -366,7 +366,7 @@ fn main() {
         }
         let recompile = if bin.is_file(){
             let old_code = fs::read_to_string(bin.clone()).unwrap();
-             code.ne(&old_code)
+             code.ne(&old_code) && bin.with_extension(exe_suffix).is_file()
         } else {
             true
         };
