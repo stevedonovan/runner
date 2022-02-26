@@ -330,7 +330,7 @@ fn main() {
 
     // proper Rust programs are accepted (this is a bit rough)
     let proper = code.find("fn main").is_some();
-    let (rust_file, program) = if ! proper {
+    let (recompile, rust_file, program) = if ! proper {
         // otherwise we must create a proper program from the snippet
         // and write this as a file in the Runner bin directory...
         let mut extern_crates = args.get_strings("extern");
@@ -364,9 +364,16 @@ fn main() {
         } else { // we make up a name...
             bin.push("tmp.rs");
         }
+        let recompile = if bin.is_file(){
+            let old_code = fs::read_to_string(bin.clone()).unwrap();
+             code.ne(&old_code)
+        } else {
+            true
+        };
+
         fs::write(&bin,&code).or_die("cannot write code");
         let program = bin.with_extension(exe_suffix);
-        (bin, program)
+        (recompile, bin, program)
     } else {
         for line in code.lines() {
             if let Some(crate_name) = strutil::word_after(line,"extern crate ") {
@@ -376,7 +383,7 @@ fn main() {
         // the 'proper' case - use the file name part
         bin.push(file.file_name().unwrap());
         let program = bin.with_extension(exe_suffix);
-        (file, program)
+        (true, file, program)
     };
 
     if b("run") {
@@ -384,12 +391,14 @@ fn main() {
             args.quit(&format!("program {:?} does not exist",program));
         }
     } else {
-        if ! compile_crate(&args,&state,"",&rust_file,Some(&program), externs, Vec::new()) {
-            process::exit(1);
-        }
-        if verbose {
-            println!("compiled {:?} successfully",rust_file);
-        }
+	if recompile{
+            if ! compile_crate(&args, &state, "", &rust_file, Some(&program), externs, Vec::new()) {
+		process::exit(1);
+            }
+            if verbose {
+		println!("compiled {:?} successfully",rust_file);
+            }
+	}
     }
 
     if b("compile-only") {
