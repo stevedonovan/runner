@@ -1,1 +1,2 @@
+//: -d
 println!("hello, world!");

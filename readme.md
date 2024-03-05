@@ -125,7 +125,7 @@ $ runner --add "time json regex"
 
 You can add as many crates if you like - number of available dependencies doesn't
 slow down the linker. Thereafter, you may refer to these crates in snippets. Note that
-by default, `runner` uses 2018 edition since 0.4.0.
+by default, `runner` uses 2021 edition since 0.6.0.
 
 ```rust
 // json.rs
@@ -168,11 +168,11 @@ It is now possible to simply invoke using `runner json.rs`. It's better to keep 
 instructions in the file itself, and it means that an editor run action bound to `runner FILE` can be
 made to work in all cases.
 
-`runner` provides various utilities for managing the static cache. 
+`runner` provides various utilities for managing the static cache.
 You can say `runner --edit` to edit the static cache `Cargo.toml`, and `runner --build` to
-rebuild the cache afterwards. `runner update` will update all the dependencies in the
-cache, and `runner update package` will update a _particular_ package - follow this
-with `build` as before.
+rebuild the cache afterwards. `runner --update` will update all the dependencies in the
+cache, and `runner --update package` will update a _particular_ package - follow this
+with `--build` as before.
 
  The cache is built for both debug and release mode,
 so using `-sO` you can build snippets in release mode. Documentation is also built
