@@ -78,6 +78,7 @@ Compile and run small Rust snippets
 ";
 
 fn read_file_with_arg_comment(args: &mut lapp::Args, file: &Path) -> (String, bool) {
+    eprintln!("In read_file_with_arg_comment, file={file:?}");
     let contents = fs::read_to_string(file).or_die("cannot read file");
     let first_line = contents.lines().next().or_die("empty file");
     let arg_comment = "//: ";
@@ -90,6 +91,29 @@ fn read_file_with_arg_comment(args: &mut lapp::Args, file: &Path) -> (String, bo
         args.clear_used();
     }
     (contents, has_arg_comment)
+}
+
+fn setenv_dyn_fallback() {
+    // Set the dynamic loader fallback library to prevent error dyld[...]: Library not loaded: @rpath/libstd-...].dylib
+    let output = Command::new("rustc")
+        .arg("--print=sysroot")
+        .output()
+        .or_then_die(|e| format!("Failed to execute process to get sysroot: {e}"));
+
+    let sysroot = String::from_utf8(output.stdout)
+        .or_then_die(|e| format!("Failed to retrieve sysroot: {e}"));
+
+    let sysroot = sysroot.trim_end();
+    eprintln!("sysroot={sysroot:?}");
+
+    let key = "DYLD_FALLBACK_LIBRARY_PATH";
+    let value = format!("${key}:{sysroot}/lib");
+    env::set_var(key, &value);
+    assert_eq!(env::var(key), Ok(value.to_string()));
+
+    let _var =
+        env::var(key).or_then_die(|e| format!("Failed to set environment variable {key}: {e}"));
+    // eprintln!("v={_var}");
 }
 
 fn main() {
@@ -128,7 +152,13 @@ fn main() {
     if let Some(env_prelude) = env_prelude {
         prelude.insert_str(0, &env_prelude);
     }
-    let b = |p| args.get_bool(p);
+    let b = |p| {
+        let val = args.get_bool(p);
+        if val {
+            eprintln!("p={p}, val={val}")
+        };
+        val
+    };
 
     let exe_suffix = if !EXE_SUFFIX.is_empty() {
         &EXE_SUFFIX[1..]
@@ -218,6 +248,13 @@ fn main() {
         return;
     }
 
+    let static_state = b("static") && !b("dynamic");
+    eprintln!("static_state={static_state}");
+
+    if !static_state {
+        setenv_dyn_fallback();
+    }
+
     let first_arg = args.get_string("program");
     let file = PathBuf::from(&first_arg);
     let optimized = args.get_bool("optimize");
@@ -225,6 +262,7 @@ fn main() {
 
     // Dynamically linking crates (experimental!)
     let (print_path, compile) = (b("crate-path"), b("compile"));
+    eprintln!("print_path={print_path}, compile={compile}");
     if print_path || compile {
         let mut state = State::dll(optimized, &edition);
         // plain-jane name is a crate name!
@@ -247,8 +285,8 @@ fn main() {
                     // TBD can override --features with features actually
                     // used to build this crate
                     let build_features = &e.features;
-                    println!(
-                        "building crate '{}' {} at {}",
+                    eprintln!(
+                        "1. building crate '{}' {} at {}",
                         e.crate_name,
                         build_features,
                         e.path.display()
@@ -296,8 +334,8 @@ fn main() {
                 let name = crate_utils::path_file_name(&file.with_extension(""));
                 (name, file.clone())
             };
-            println!(
-                "building crate '{}' at {}",
+            eprintln!(
+                "2. building crate '{}' at {}",
                 crate_name,
                 crate_path.display()
             );
@@ -317,7 +355,6 @@ fn main() {
         }
     }
 
-    let static_state = b("static") && !b("dynamic");
     let state = State::exe(static_state, optimized, &edition);
 
     // we'll pass rest of arguments to program
@@ -417,12 +454,18 @@ fn main() {
         let program = bin.with_extension(exe_suffix);
         (file, program)
     };
+    eprintln!(
+        "proper={proper}, rust_file={}, program={}",
+        &rust_file.display(),
+        &program.display()
+    );
 
     if b("run") {
         if !program.exists() {
             args.quit(&format!("program {:?} does not exist", program));
         }
     } else {
+        eprintln!("3. building crate (none) at {:?}", &rust_file);
         if !compile_crate(
             &args,
             &state,
@@ -463,32 +506,14 @@ fn main() {
         return;
     }
 
-    // Set the dynamic loader fallback library to prevent error dyld[...]: Library not loaded: @rpath/libstd-...].dylib
-    let output = Command::new("rustc")
-        .arg("--print=sysroot")
-        .output()
-        .or_then_die(|e| format!("Failed to execute process to get sysroot: {e}"));
-
-    // println!("status: {}", output.status);
-    // println!("{:?}", &output.stdout);
-    // eprintln!("{:?}", &output.stderr);
-
-    let Ok(sysroot) = String::from_utf8(output.stdout) else {
-        panic!("Maybe TODO")
-    };
-    let sysroot = sysroot.trim_end();
-    println!("sysroot={sysroot:?}");
-
-    let key = "DYLD_FALLBACK_LIBRARY_PATH";
-    let value = format!("${key}:{sysroot}/lib");
-    env::set_var(key, &value);
-    assert_eq!(env::var(key), Ok(value.to_string()));
-
-    let v = env::var(key).expect("key is not set");
-    eprintln!("v={v}");
-
     // Finally run the compiled program
     let ch = cache::get_cache(&state);
+    eprintln!(
+        "ch={}, program={}, state.build_static={}",
+        ch.display(),
+        &program.display(),
+        state.build_static
+    );
     let mut builder = process::Command::new(&program);
     if !state.build_static {
         // must make the dynamic cache visible to the program!
@@ -505,6 +530,8 @@ fn main() {
             );
         }
     }
+
+    eprintln!("!!!!About to execute program");
     let status = builder
         .args(&program_args)
         .status()
