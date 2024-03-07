@@ -3,3 +3,6 @@ target/
 scratch/
 examples/universe.rs
 temp.rs
+.DS_Store
+json.json
+mwe.rs

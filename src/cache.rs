@@ -1,10 +1,8 @@
 // cache management
 
-use crate::es::traits::Die;
-use crate::es::traits::StringEx;
-use crate::es::traits::ToVec;
-use crate::es::traits::*;
+use crate::es::traits::{Die, MaybeTrim, StringEx, ToMap, ToVec};
 use std::collections::HashMap;
+use std::convert::Into;
 use std::env;
 use std::fs;
 use std::io::{BufRead, Write};
@@ -133,29 +131,29 @@ pub fn static_cache_dir_check() -> PathBuf {
     static_cache
 }
 
-pub fn build_static_cache() -> bool {
-    use crate::meta::*;
+pub fn build_static() -> bool {
+    use crate::meta::Meta;
     let mut m = Meta::new();
     match cargo_build(false) {
         None => return false,
-        Some(s) => m.debug(s),
+        Some(s) => m.debug(&s),
     }
     match cargo_build(true) {
         None => return false,
-        Some(s) => m.release(s),
+        Some(s) => m.release(&s),
     }
     m.update(&static_cache_dir());
     cargo(&["doc"])
 }
 
-pub fn create_static_cache(crates: &[String]) {
+pub fn create_static(crates: &[String]) {
     // use std::io::prelude::*;
 
     let static_cache = static_cache_dir();
     let exists = static_cache.exists();
 
     let crates = if crates.len() == 1 && crates[0] == "kitchen-sink" {
-        KITCHEN_SINK.split_whitespace().map(|s| s.into()).collect()
+        KITCHEN_SINK.split_whitespace().map(Into::into).collect()
     } else {
         crates.to_vec()
     };
@@ -163,13 +161,13 @@ pub fn create_static_cache(crates: &[String]) {
     let mut home = runner_directory();
     env::set_current_dir(&home).or_die("cannot change to home directory");
 
-    let mdata = if !exists {
+    let mdata = if exists {
+        Some(get_metadata())
+    } else {
         if !cargo(&["new", "--bin", STATIC_CACHE]) {
             es::quit("cannot create static cache");
         }
         None
-    } else {
-        Some(get_metadata())
     };
     let check_crate = |s: &str| {
         if let Some(m) = &mdata {
@@ -226,14 +224,14 @@ pub fn create_static_cache(crates: &[String]) {
             .or_die("could not append to Cargo.toml");
         for (name, vs, semver) in crates_vs {
             if semver {
-                writeln!(deps, "{}=\"{}\"", name, vs)
+                writeln!(deps, "{name}=\"{vs}\"")
             } else {
-                writeln!(deps, "{}={{path=\"{}\"}}", name, vs)
+                writeln!(deps, "{name}={{path=\"{vs}\"}}")
             }
             .or_die("could not modify Cargo.toml");
         }
     }
-    if !build_static_cache() {
+    if !build_static() {
         println!("Error occurred - restoring Cargo.toml");
         fs::copy(&tmpfile, "Cargo.toml").or_die("cannot restore Cargo.toml");
     }
@@ -273,7 +271,7 @@ pub fn get_prelude() -> String {
     fs::read_to_string(&prelude).or_die("cannot read prelude")
 }
 
-pub fn get_cache(state: &State) -> PathBuf {
+pub fn get(state: &State) -> PathBuf {
     let mut home = runner_directory();
     if state.build_static {
         home.push(STATIC_CACHE);
@@ -299,7 +297,7 @@ pub fn add_aliases(aliases: Vec<String>) {
     .or_die("cannot open runner alias file");
 
     for crate_alias in aliases {
-        writeln!(f, "{}", crate_alias).or_die("cannot write to runner alias file");
+        writeln!(f, "{crate_alias}").or_die("cannot write to runner alias file");
     }
 }
 

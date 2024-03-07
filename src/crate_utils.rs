@@ -1,4 +1,4 @@
-use es::traits::*;
+use es::traits::Die;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};

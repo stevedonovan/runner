@@ -47,7 +47,7 @@ $ runner hello.rs dolly
 hello dolly
 ```
 
-You can even - on Unix platforms - add a 'shebang' line to invoke runner:
+You can even -- on Unix/Linux and Mac platforms -- add a 'shebang' line to invoke runner:
 
 ```
 $ cat hello
@@ -123,31 +123,28 @@ cache with some common crates:
 $ runner --add "time json regex"
 ```
 
-You can add as many crates if you like - number of available dependencies doesn't
+You can add as many crates as you like - the number of available dependencies doesn't
 slow down the linker. Thereafter, you may refer to these crates in snippets. Note that
 by default, `runner` uses 2021 edition since 0.6.0.
 
 ```rust
-// json.rs
-use json;
+//: --static
+use serde_json::json;
 
-let parsed = json::parse(r#"
-
-{
-    "code": 200,
-    "success": true,
-    "payload": {
-        "features": [
-            "awesome",
-            "easyAPI",
-            "lowLearningCurve"
-        ]
-    }
-}
-
-"#)?;
-
-println!("{}",parsed);
+println!(
+    "{}",
+    json!({
+        "code": 200,
+        "success": true,
+        "payload": {
+            "features": [
+                "awesome",
+                "easyAPI",
+                "lowLearningCurve"
+            ]
+        }
+    })
+);
 ```
 
 And then build statically and run (any extra arguments are passed to the program.)
@@ -298,6 +295,16 @@ $ runner -xeasy_shortcuts -i 'easy_shortcuts::files(".")'
 "print.rs"
 ```
 
+With `-e`,`-n` or `-i`, you can specify. some initial code with `--prepend`:
+
+```
+$  runner -p 'let nums=0..5' -i 'nums.clone().zip(nums.skip(1))'
+(0, 1)
+(1, 2)
+(2, 3)
+(3, 4)
+```
+
 With long crate names like this, you can define _aliases_:
 
 ```
@@ -338,26 +345,37 @@ $ runner -s --macro r4 -i 'iterate![for x in 0..4; yield x]'
 ```
 
 Small snippets like these are faster if the crates can be linked dynamically, so
-after `runner -C r4` to build a shared library in the dynamic cast, you can run this
+after `runner -C r4` to build a shared library in the dynamic cache, you can run this
 without the `-s`.
 
 ```
-$ runner -Xto_vec -Mr4 -e 'iterate![for i in 0..2; for j in 0..2; yield (i,j)].to_vec()'
+$ runner --macro r4 -i 'iterate![for x in 0..4; yield x]'
+0
+1
+2
+3
+```
+
+Here's a fancier dynamic example. We'll need to include the easy_shortcuts crate which we aliased to "es" above, and prepend an import statement for its
+ToVec trait.
+So in preparation run any of the following that you haven't already run:
+
+
+```
+$ runner -C r4
+$ runner -C easy_shortcuts
+$ runner --alias es=easy_shortcuts
+```
+
+Now we can run our dynamic snippet:
+
+```
+$ runner -xes -p 'use es::traits::ToVec' -Mr4 -e 'iterate![for i in 0..2; for j in 0..2; yield (i,j)].to_vec()'
 [(0, 0), (0, 1), (1, 0), (1, 1)]
 ```
 
 (At this point, the command-line is getting sufficiently complicated that you would
 be better off with a little snippet that you can edit in a proper editor.)
-
-With `-e`,`-n` or `-i`, you can specify. some initial code with `--prepend`:
-
-```
-$  runner -p 'let nums=0..5' -i 'nums.clone().zip(nums.skip(1))'
-(0, 1)
-(1, 2)
-(2, 3)
-(3, 4)
-```
 
 If you can get away with dynamic linking, then `runner` can make it
 easy to test a module interactively. In this way you get much of the
@@ -432,7 +450,7 @@ As always, can always put these arguments in a first comment like so "//: -sN".
 It would be good to provide such an experience for the dynamic-link case, since
 it is faster. There is in fact a dynamic cache as well but support for linking
 against external crates dynamically is very basic. It works fine for crates that
-don't have any external depdendencies, e.g. this creates a `libjson.so` in the
+don't have any external dependencies, e.g. this creates a `libjson.so` in the
 dynamic cache:
 
 ```
@@ -451,6 +469,7 @@ Rust tooling at the moment. So we have to build more elaborate libraries without
 help of Cargo. (The following assumes that you have already brought in `regex` for a Cargo project,
 so that the Cargo cache is populated, e.g. with `runner --add regex`)
 
+TODO: Not working
 
 ```
 runner -C memchr

@@ -1,7 +1,7 @@
 // takes basic functionality from open crate
 // and fills in the important _edit_ case, respecting POSIX
 // and some Windows/MacOS limitations.
-use super::es::traits::*;
+use super::es::traits::Die;
 use std::env;
 use std::path::Path;
 use std::process::Command;
@@ -33,6 +33,6 @@ pub fn edit(p: &Path) {
         Command::new(&editor)
             .arg(p)
             .status()
-            .or_die(&format!("Cannot find editor {:?}: ", p));
+            .or_die(&format!("Cannot find editor {p:?}: "));
     }
 }

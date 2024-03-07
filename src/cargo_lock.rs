@@ -1,4 +1,4 @@
-use es::traits::*;
+use es::traits::Die;
 use std::fs;
 use std::path::Path;
 
@@ -15,7 +15,7 @@ pub struct Package {
     pub dependencies: Option<Vec<String>>,
 }
 
-pub fn read_cargo_lock(path: &Path) -> CargoLock {
+pub fn read(path: &Path) -> CargoLock {
     let lockf = path.join("Cargo.lock");
     let body = fs::read_to_string(lockf).or_die("cannot read Cargo.lock");
     toml::from_str(&body).or_die("can't deserialize")

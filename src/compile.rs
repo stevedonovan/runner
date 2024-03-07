@@ -1,7 +1,7 @@
 use crate::cache;
 use crate::crate_utils;
 use crate::state::State;
-use es::traits::*;
+use es::traits::Die;
 
 use std::collections::HashSet;
 use std::env::consts::{DLL_PREFIX, DLL_SUFFIX};
@@ -26,6 +26,7 @@ fn simplify_qualified_names(text: &str) -> String {
 // handle two useful cases:
 // - compile a crate as a dynamic library, given a name and an output dir
 // - compile a program, given a program
+#[allow(clippy::module_name_repetitions)]
 pub fn compile_crate(
     args: &lapp::Args,
     state: &State,
@@ -49,40 +50,42 @@ pub fn compile_crate(
     }
     let mut cfg = args.get_strings("cfg");
     let explicit_features = args.get_strings("features");
-    for f in if !explicit_features.is_empty() {
-        explicit_features
-    } else {
+    for f in if explicit_features.is_empty() {
         features
+    } else {
+        explicit_features
     } {
-        cfg.push(format!("feature=\"{}\"", f));
+        cfg.push(format!("feature=\"{f}\""));
     }
-    let cache = cache::get_cache(state);
+    let cache = cache::get(state);
     let mut builder = process::Command::new("rustc");
     if state.edition != "2015" {
         builder.args(["--edition", &state.edition]);
     }
-    if !state.build_static {
-        // stripped-down dynamic link
-        builder
-            .args(["-C", "prefer-dynamic"])
-            .args(["-C", "debuginfo=0"]);
-        if let Ok(link) = args.get_string_result("link") {
-            if verbose {
-                println!("linking against {}", link);
-            }
-            builder.arg("-L").arg(&link);
-        }
-    } else {
+    if state.build_static {
         // static build
         builder.arg(if state.optimize { "-O" } else { "-g" });
         if state.optimize {
             // no point in carrying around all that baggage...
             builder.args(["-C", "debuginfo=0"]);
         }
+    } else {
+        // stripped-down dynamic link
+        builder
+            .args(["-C", "prefer-dynamic"])
+            .args(["-C", "debuginfo=0"]);
+        if let Ok(link) = args.get_string_result("link") {
+            if verbose {
+                println!("linking against {link}");
+            }
+            builder.arg("-L").arg(&link);
+        }
     }
     // implicitly linking against crates in the dynamic or static cache
     builder.arg("-L").arg(&cache);
-    if !state.exe {
+    if state.exe {
+        builder.arg("-o").arg(output_program.unwrap());
+    } else {
         // as a dynamic library
         builder
             .args(["--crate-type", "dylib"])
@@ -90,8 +93,6 @@ pub fn compile_crate(
             .arg(&cache)
             .arg("--crate-name")
             .arg(&crate_utils::proper_crate_name(crate_name));
-    } else {
-        builder.arg("-o").arg(output_program.unwrap());
     }
     for c in cfg {
         builder.arg("--cfg").arg(&c);
@@ -107,9 +108,8 @@ pub fn compile_crate(
             .into_iter()
             .map(|c| {
                 (
-                    m.get_full_crate_name(&c, debug).or_then_die(|_| {
-                        format!("no such crate '{}' in static cache: use --add", c)
-                    }),
+                    m.get_full_crate_name(&c, debug)
+                        .or_then_die(|_| format!("no such crate '{c}' in static cache: use --add")),
                     c,
                 )
             })
@@ -117,15 +117,15 @@ pub fn compile_crate(
     } else {
         extern_crates
             .into_iter()
-            .map(|c| (format!("{}{}{}", DLL_PREFIX, c, DLL_SUFFIX), c))
+            .map(|c| (format!("{DLL_PREFIX}{c}{DLL_SUFFIX}"), c))
             .collect()
     };
 
     for (name, c) in extern_crates {
         let full_path = PathBuf::from(&cache).join(&name);
-        let ext = format!("{}={}", c, full_path.display());
+        let ext = format!("{c}={}", full_path.display());
         if verbose {
-            println!("extern {}", ext);
+            println!("extern {ext}");
         }
         builder.arg("--extern").arg(&ext);
     }
@@ -147,18 +147,18 @@ pub fn compile_crate(
 }
 
 pub fn massage_snippet(
-    code: String,
+    code: &str,
     prelude: String,
     extern_crates: Vec<String>,
     wild_crates: Vec<String>,
-    macro_crates: HashSet<String>,
-    body_prelude: String,
+    macro_crates: &HashSet<String>,
+    body_prelude: &str,
     is2021: bool,
 ) -> (String, Vec<String>) {
     use crate::strutil::{after, split, word_after};
 
     fn indent_line(line: &str) -> String {
-        format!("    {}\n", line)
+        format!("    {line}\n")
     }
 
     let mut prefix = prelude;
@@ -171,18 +171,18 @@ pub fn massage_snippet(
         let aliases = cache::get_aliases();
         for c in &extern_crates {
             prefix += &if let Some(aliased) = aliases.get(c) {
-                format!("extern crate {} as {};\n", aliased, c)
+                format!("extern crate {aliased} as {c};\n",)
             } else {
                 let mac = if macro_crates.contains(c) {
                     "#[macro_use] "
                 } else {
                     ""
                 };
-                format!("{}extern crate {};\n", mac, c)
+                format!("{mac}extern crate {c};\n")
             };
         }
         for c in wild_crates {
-            prefix += &format!("use {}::*;\n", c);
+            prefix += &format!("use {c}::*;\n");
         }
     }
     let mut lines = code.lines();
@@ -236,19 +236,18 @@ pub fn massage_snippet(
     deduced_externs.dedup();
 
     let massaged_code = format!(
-        "{}
-{}
+        "{crate_begin}
+{prefix}
 
 fn run(args: Vec<String>) -> std::result::Result<(),Box<dyn std::error::Error+Sync+Send>> {{
-{}    Ok(())
+{body}    Ok(())
 }}
 fn main() {{
     if let Err(e) = run(std::env::args().collect()) {{
         println!(\"error: {{:?}}\",e);
     }}
 }}
-",
-        crate_begin, prefix, body
+"
     );
 
     (massaged_code, deduced_externs)
