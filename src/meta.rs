@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use super::crate_utils::proper_crate_name;
 use crate::cache::static_cache_dir;
 use crate::cargo_lock;
+use crate::strutil::next_2;
 
 use es::quit;
 use es::traits::{Die, ToVec};
@@ -54,7 +55,6 @@ struct Package {
 
 fn read_entry(line: &str) -> Option<(String, String, Version, String, String, String)> {
     // eprintln!("\nline={line}");
-    use crate::strutil::next_2;
 
     let from_str = serde_json::from_str(line);
     if from_str.is_err() {
@@ -86,7 +86,6 @@ fn read_entry(line: &str) -> Option<(String, String, Version, String, String, St
     let name = target.name;
 
     // get the cached source path
-    // let path = Path::new(as_str(&doc["target"]["src_path"]));
     let src_path = target.src_path;
     let path = Path::new(&src_path);
 

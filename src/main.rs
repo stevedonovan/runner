@@ -8,6 +8,7 @@ extern crate lazy_static;
 extern crate serde_derive;
 
 use es::traits::Die;
+use regex::Regex;
 use std::collections::HashSet;
 use std::env::consts::EXE_SUFFIX;
 use std::fs;
@@ -46,6 +47,7 @@ Compile and run small Rust snippets
   -M, --macro... (string) like -x but implies macro import
   -p, --prepend (default '') put this statement in body (useful for -i etc)
   -N, --no-prelude do not include runner prelude
+  -c, --compile-only  compiles program and copies to output dir
   -o, --output (path default cargo) change the default output dir for compilation
   -r, --run  don't compile, only re-run
   -S, --no-simplify by default, attempt to simplify rustc error messages
@@ -87,6 +89,12 @@ fn read_file_with_arg_comment(args: &mut lapp::Args, file: &Path) -> (String, bo
     let has_arg_comment = first_line.starts_with(arg_comment);
     if has_arg_comment {
         let default_args = &first_line[arg_comment.len()..];
+        eprintln!(
+            "Picked up arguments from {:?}: {default_args}",
+            file.file_name()
+                .or_then_die(|e| format!("error retrieving filename: [{e}]"))
+        );
+
         let default_args = shlex::split(default_args).or_die("bad comment args");
         args.parse_command_line(default_args)
             .or_die("cannot parse comment args");
@@ -149,7 +157,7 @@ fn main() {
     } else {
         None
     };
-    eprintln!("program_contents={program_contents:?}");
+    // eprintln!("program_contents={program_contents:?}");
 
     let mut prelude = cache::get_prelude();
     if let Some(env_prelude) = env_prelude {
@@ -247,24 +255,26 @@ fn main() {
 
     let static_state = b("static") && !b("dynamic");
 
-    if !static_state {
+    if !static_state || b("run") {
         setenv_dyn_fallback();
     }
 
-    let first_arg: String;
-    eprintln!(
-        "b(\"stdin\")={}; b(\"compile-only\")={}",
-        b("stdin"),
-        b("compile-only")
-    );
-    if b("stdin") && !b("compile-only") {
-        first_arg = "STDIN".to_string();
-    } else {
-        eprintln!("About to call args.get_string(\"program\")...");
-        first_arg = args.get_string("program");
-        eprintln!("... it returned first_arg={first_arg}");
-    }
-    let file = PathBuf::from(&first_arg);
+    // eprintln!(
+    //     "b(\"stdin\")={}; b(\"compile-only\")={}",
+    //     b("stdin"),
+    //     b("compile-only")
+    // );
+    let (first_arg_opt, file_res): (Option<String>, Option<PathBuf>) =
+        if b("stdin") && !b("compile-only") {
+            // "STDIN".to_string()
+            (None, None)
+        } else {
+            // eprintln!("About to call args.get_string(\"program\")...");
+            let first_arg = args.get_string("program");
+            // eprintln!("... it returned first_arg={first_arg}");
+            (Some(first_arg.clone()), Some(PathBuf::from(first_arg)))
+        };
+    // let file = PathBuf::from(&first_arg);
     let optimized = args.get_bool("optimize");
     let edition = args.get_string("edition");
 
@@ -273,11 +283,14 @@ fn main() {
     if print_path || compile {
         let mut state = State::dll(optimized, &edition);
         // plain-jane name is a crate name!
-        if crate_utils::plain_name(&first_arg) {
+        let Some(first_arg) = &first_arg_opt else {
+            args.quit("build requested with no filename")
+        };
+        if crate_utils::plain_name(first_arg) {
             // but is it one of Ours? Then we definitely know what the
             // actual crate name is AND where the source is cached
             let m = cache::get_metadata();
-            if let Some(e) = m.get_meta_entry(&first_arg) {
+            if let Some(e) = m.get_meta_entry(first_arg) {
                 if e.path == Path::new("") {
                     args.quit("please run 'runner --build' to update metadata");
                 }
@@ -293,7 +306,7 @@ fn main() {
                     // used to build this crate
                     let build_features = &e.features;
                     eprintln!(
-                        "1. building crate '{}' {} at {}",
+                        "dynamically linking crate '{}' with features [{}] at {}",
                         e.crate_name,
                         build_features,
                         e.path.display()
@@ -315,47 +328,50 @@ fn main() {
             }
         } else {
             if compile {
-                if !file.exists() {
-                    args.quit("no such file or directory");
-                }
-                let (crate_name, crate_path) = if file.is_dir() {
-                    match crate_utils::cargo_dir(&file) {
-                        Ok((path, cargo_toml)) => {
-                            // this is somewhat dodgy, since the default location can be changed
-                            // Safest bet is to add the crate to the runner static cache
-                            let source = path.join("src").join("lib.rs");
-                            let ci = crate_utils::crate_info(&cargo_toml);
-                            // respect the crate's edition!
-                            state.edition = ci.edition;
-                            (ci.name, source)
+                if let Some(file) = file_res {
+                    if !file.exists() {
+                        args.quit("no such file or directory for crate compile");
+                    }
+                    let (crate_name, crate_path) = if file.is_dir() {
+                        match crate_utils::cargo_dir(&file) {
+                            Ok((path, cargo_toml)) => {
+                                // this is somewhat dodgy, since the default location can be changed
+                                // Safest bet is to add the crate to the runner static cache
+                                let source = path.join("src").join("lib.rs");
+                                let ci = crate_utils::crate_info(&cargo_toml);
+                                // respect the crate's edition!
+                                state.edition = ci.edition;
+                                (ci.name, source)
+                            }
+                            Err(msg) => args.quit(&msg),
                         }
-                        Err(msg) => args.quit(&msg),
-                    }
-                } else {
-                    // should be just a Rust source file
-                    if file.extension().or_die("expecting extension") != "rs" {
-                        args.quit(
-                            "expecting known crate, dir containing Cargo.toml or Rust source file",
-                        );
-                    }
-                    let name = crate_utils::path_file_name(&file.with_extension(""));
-                    (name, file.clone())
-                };
-                eprintln!(
-                    "2. building crate '{}' at {}",
-                    crate_name,
-                    crate_path.display()
-                );
-                compile_crate(
-                    &args,
-                    &state,
-                    &crate_name,
-                    &crate_path,
-                    None,
-                    Vec::new(),
-                    Vec::new(),
-                );
-                return;
+                    } else {
+                        // should be just a Rust source file
+                        if file.extension().or_die("expecting extension") != "rs" {
+                            args.quit(
+                                "expecting known crate, dir containing Cargo.toml or Rust source file",
+                            );
+                        }
+                        let name = crate_utils::path_file_name(&file.with_extension(""));
+                        (name, file.clone())
+                    };
+                    eprintln!(
+                        "compiling crate '{}' at {}",
+                        crate_name,
+                        crate_path.display()
+                    );
+                    compile_crate(
+                        &args,
+                        &state,
+                        &crate_name,
+                        &crate_path,
+                        None,
+                        Vec::new(),
+                        Vec::new(),
+                    );
+                    return;
+                }
+                args.quit("--compile specified with no crate name");
             }
             // we no longer go for wild goose chase to find crates in the Cargo cache
             args.quit("not found in the static cache");
@@ -369,35 +385,7 @@ fn main() {
 
     let mut expression = true;
     let mut save_file = false;
-    let mut code = if b("expression") {
-        // Evaluating an expression: just debug print it out.
-        format!("println!(\"{{:?}}\",{});", quote(first_arg))
-    } else if b("iterator") {
-        // The expression is anything that implements IntoIterator
-        format!(
-            "for val in {} {{\n println!(\"{{:?}}\",val);\n}}",
-            quote(first_arg)
-        )
-    } else if b("lines") {
-        // The variable 'line' is available to an expression, evaluated for each line in stdin
-        // But if the expression ends with '}' then don't dump out this value!
-        let first_arg = quote(first_arg);
-        let stmt = first_arg.trim_end().ends_with('}');
-        let mut s = String::from(
-            "
-            let stdin = io::stdin();
-            for line in stdin.lock().lines() {
-                let line = line?;
-        ",
-        );
-        s += &if stmt {
-            format!("  {first_arg};")
-        } else {
-            format!("let val = {first_arg};\nprintln!(\"{{:?}}\",val);")
-        };
-        s += "\n}";
-        s
-    } else if b("stdin") {
+    let mut code = if b("stdin") {
         if b("compile-only") {
             save_file = true;
         }
@@ -416,10 +404,41 @@ fn main() {
         // println!("Content from stdin:\n{}", s);
         s
     } else {
-        // otherwise, just a file
-        expression = false;
-        save_file = true;
-        program_contents.or_die("no .rs file")
+        // let file = file_res.clone().or_die("no such file or directory");
+
+        let first_arg = first_arg_opt.or_die("No Rust source file specified");
+        let quoted_src = quote(first_arg);
+        if b("expression") {
+            // Evaluating an expression: just debug print it out.
+            format!("println!(\"{{:?}}\",{quoted_src});")
+        } else if b("iterator") {
+            // The expression is anything that implements IntoIterator
+            format!("for val in {quoted_src} {{\n println!(\"{{:?}}\",val);\n}}")
+        } else if b("lines") {
+            // The variable 'line' is available to an expression, evaluated for each line in stdin
+            // But if the expression ends with '}' then don't dump out this value!
+            let first_arg = quoted_src;
+            let stmt = first_arg.trim_end().ends_with('}');
+            let mut s = String::from(
+                "
+                let stdin = io::stdin();
+                for line in stdin.lock().lines() {
+                    let line = line?;
+            ",
+            );
+            s += &if stmt {
+                format!("  {first_arg};")
+            } else {
+                format!("let val = {first_arg};\nprintln!(\"{{:?}}\",val);")
+            };
+            s += "\n}";
+            s
+        } else {
+            // otherwise, just a file
+            expression = false;
+            save_file = true;
+            program_contents.or_die("no .rs file")
+        }
     };
 
     // ALL executables go into the Runner bin directory...
@@ -427,7 +446,9 @@ fn main() {
     let mut externs = Vec::new();
 
     // proper Rust programs are accepted (this is a bit rough)
-    let proper = code.contains("fn main");
+    // let proper = code.contains("fn main");
+    let re = Regex::new(r"fn[[:space:]]+main").unwrap();
+    let proper = !b("stdin") && re.is_match(&code);
     let (rust_file, program) = if proper {
         for line in code.lines() {
             if let Some(crate_name) = strutil::word_after(line, "extern crate ") {
@@ -435,6 +456,7 @@ fn main() {
             }
         }
         // the 'proper' case - use the file name part
+        let file = file_res.or_die("no such file or directory for code containing 'fn main'");
         bin.push(file.file_name().unwrap());
         let program = bin.with_extension(exe_suffix);
         (file, program)
@@ -487,6 +509,7 @@ fn main() {
             // we make up a name...
             bin.push("tmp.rs");
         } else {
+            let file = file_res.clone().or_die("no such file or directory");
             bin.push(file.file_name().unwrap());
             bin.set_extension("rs");
         }
@@ -500,7 +523,7 @@ fn main() {
             args.quit(&format!("program {program:?} does not exist"));
         }
     } else {
-        eprintln!("3. building crate ({program:?}) at {:?}", &rust_file);
+        eprintln!("building ({program:?}) for source {:?}", &rust_file);
         // eprintln!("program=[{program:?}]");
         if !compile_crate(
             &args,
@@ -519,6 +542,11 @@ fn main() {
     }
 
     if b("compile-only") {
+        if state.build_static {
+            eprintln!("Compiling statically");
+        } else {
+            eprintln!("Compiling dynamically");
+        }
         let file_name = rust_file.file_name().or_die("no file name?");
         let out_dir = args.get_path("output");
         let home = if out_dir == Path::new("cargo") {
@@ -545,7 +573,14 @@ fn main() {
     // Finally run the compiled program
     let ch = cache::get(&state);
     let mut builder = process::Command::new(&program);
-    if !state.build_static {
+    if state.build_static {
+        if b("run") && b("static") {
+            eprintln!("Running statically (provided originally compiled statically)");
+        } else {
+            eprintln!("Running statically");
+        }
+    } else {
+        eprintln!("Running dynamically");
         // must make the dynamic cache visible to the program!
         if cfg!(windows) {
             // Windows resolves DLL references on the PATH
@@ -561,7 +596,9 @@ fn main() {
         }
     }
 
-    eprintln!("About to execute program");
+    // eprintln!("About to execute program...");
+    let len = 50;
+    eprintln!("{}", "-".repeat(len));
     let status = builder
         .args(&program_args)
         .status()
@@ -570,4 +607,6 @@ fn main() {
     if !status.success() {
         process::exit(status.code().unwrap_or(-1));
     }
+
+    eprintln!("{}", "-".repeat(len));
 }

@@ -30,6 +30,7 @@ serde_derive = "1.0.27"
 serde = "1.0.27"
 shlex = "0.1.1"
 dirs = "1.0"
+regex = "1.10.3"
 
 [profile.release]
 panic = 'abort'

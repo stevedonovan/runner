@@ -17,10 +17,16 @@
   - Fix minor typos in README and update JSON example, also make the example match.
   - Fix r4 demo in README
   - Fix version reporting (use CARGO_PKG_VERSION)
-  - TODO Fix running program in another dir
-  - TODO files compiled dynamically must be run dynamically. Other way round doesn't seem to matter.
+  - TODO Fix running program in another dir - or not? Works fine if not hard-coded in program, like filetime.rs
+  - Fixed: tolerate --static on --run for files compiled dynamically. When this combination is specified, a
+    best effort will be made to run statically, but the DYLD_FALLBACK_LIBRARY_PATH will be set to prevent likely
+    problems with dynamic loading in case the program was compiled dynamically.
   - TODO option to clean out saved artifacts?
   - Fix issue #9 running from stdin, except currently code will be saved.
+    TODO: tweak behaviour
+  - Display whether current action is static or dynamic
+  - TODO Test --compile-only with all "expression = true" options.
+  - Change regex example to include libc, do other new or changed examples.
 
 ## 0.5.0 Release
 
