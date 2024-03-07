@@ -9,12 +9,12 @@ extern crate serde_derive;
 
 use es::traits::Die;
 use std::collections::HashSet;
-use std::env;
 use std::env::consts::EXE_SUFFIX;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{self, Command};
 use std::string::ToString;
+use std::{env, io};
 
 mod cache;
 mod cargo_lock;
@@ -46,11 +46,11 @@ Compile and run small Rust snippets
   -M, --macro... (string) like -x but implies macro import
   -p, --prepend (default '') put this statement in body (useful for -i etc)
   -N, --no-prelude do not include runner prelude
-  -c, --compile-only  compiles program and copies to output dir
   -o, --output (path default cargo) change the default output dir for compilation
   -r, --run  don't compile, only re-run
   -S, --no-simplify by default, attempt to simplify rustc error messages
-  -E, --edition (default '2021') Rust edition
+  -E, --edition (default '2021') specify Rust edition
+  -I, --stdin Input from stdin
 
   Cache Management:
   --add  (string...) add new crates to the cache
@@ -149,6 +149,7 @@ fn main() {
     } else {
         None
     };
+    eprintln!("program_contents={program_contents:?}");
 
     let mut prelude = cache::get_prelude();
     if let Some(env_prelude) = env_prelude {
@@ -250,7 +251,19 @@ fn main() {
         setenv_dyn_fallback();
     }
 
-    let first_arg = args.get_string("program");
+    let first_arg: String;
+    eprintln!(
+        "b(\"stdin\")={}; b(\"compile-only\")={}",
+        b("stdin"),
+        b("compile-only")
+    );
+    if b("stdin") && !b("compile-only") {
+        first_arg = "STDIN".to_string();
+    } else {
+        eprintln!("About to call args.get_string(\"program\")...");
+        first_arg = args.get_string("program");
+        eprintln!("... it returned first_arg={first_arg}");
+    }
     let file = PathBuf::from(&first_arg);
     let optimized = args.get_bool("optimize");
     let edition = args.get_string("edition");
@@ -355,6 +368,7 @@ fn main() {
     let program_args = args.get_strings("args");
 
     let mut expression = true;
+    let mut save_file = false;
     let mut code = if b("expression") {
         // Evaluating an expression: just debug print it out.
         format!("println!(\"{{:?}}\",{});", quote(first_arg))
@@ -383,9 +397,28 @@ fn main() {
         };
         s += "\n}";
         s
+    } else if b("stdin") {
+        if b("compile-only") {
+            save_file = true;
+        }
+        let mut s = String::new();
+
+        // Read lines from stdin in a loop until EOF is reached
+        loop {
+            let bytes_read = io::stdin()
+                .read_line(&mut s)
+                .or_die("could not read from stdin");
+            if bytes_read == 0 {
+                break; // EOF reached
+            }
+        }
+
+        // println!("Content from stdin:\n{}", s);
+        s
     } else {
         // otherwise, just a file
         expression = false;
+        save_file = true;
         program_contents.or_die("no .rs file")
     };
 
@@ -450,7 +483,7 @@ fn main() {
         );
         code = massaged_code;
         externs = deduced_externs;
-        if expression {
+        if expression && !save_file {
             // we make up a name...
             bin.push("tmp.rs");
         } else {
@@ -467,7 +500,7 @@ fn main() {
             args.quit(&format!("program {program:?} does not exist"));
         }
     } else {
-        eprintln!("3. building crate (none) at {:?}", &rust_file);
+        eprintln!("3. building crate ({program:?}) at {:?}", &rust_file);
         // eprintln!("program=[{program:?}]");
         if !compile_crate(
             &args,
@@ -528,7 +561,7 @@ fn main() {
         }
     }
 
-    // eprintln!("About to execute program");
+    eprintln!("About to execute program");
     let status = builder
         .args(&program_args)
         .status()
