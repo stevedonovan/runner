@@ -8,7 +8,6 @@ extern crate lazy_static;
 extern crate serde_derive;
 
 use es::traits::Die;
-use regex::Regex;
 use std::collections::HashSet;
 use std::env::consts::EXE_SUFFIX;
 use std::fs;
@@ -27,7 +26,7 @@ mod state;
 mod strutil;
 
 use cache::quote;
-use compile::{compile_crate, massage_snippet};
+use compile::{check_well_formed, compile_crate, massage_snippet};
 use crate_utils::RUSTUP_LIB;
 use platform::{edit, open};
 use state::State;
@@ -39,7 +38,7 @@ Compile and run small Rust snippets
   -s, --static build statically (default is dynamic)
   -d, --dynamic overrides --static in env.rs
   -O, --optimize optimized static build
-  -e, --expression evaluate an expression
+  -e, --expression evaluate an expression - try enclosing in braces if having trouble
   -i, --iterator iterate over an expression
   -n, --lines evaluate expression over stdin; the var 'line' is defined
   -x, --extern... (string) add an extern crate to the snippet
@@ -180,6 +179,9 @@ fn main() {
     if b("run") && b("compile-only") {
         args.quit("--run and compile-only make no sense together");
     }
+    if b("lines") && b("stdin") {
+        args.quit("--lines and stdin make no sense together, as lines already reads from stdin");
+    }
 
     let aliases = args.get_strings("alias");
     if !aliases.is_empty() {
@@ -253,6 +255,7 @@ fn main() {
         return;
     }
 
+    // Run Rust code
     let static_state = b("static") && !b("dynamic");
 
     if !static_state || b("run") {
@@ -384,11 +387,7 @@ fn main() {
     let program_args = args.get_strings("args");
 
     let mut expression = true;
-    let mut save_file = false;
-    let mut code = if b("stdin") {
-        if b("compile-only") {
-            save_file = true;
-        }
+    let (has_save_name, raw_code) = if b("stdin") {
         let mut s = String::new();
 
         // Read lines from stdin in a loop until EOF is reached
@@ -402,54 +401,77 @@ fn main() {
         }
 
         // println!("Content from stdin:\n{}", s);
-        s
-    } else {
+        (b("compile-only"), quote(s))
+    } else if b("expression") || b("iterator") || b("lines") {
         // let file = file_res.clone().or_die("no such file or directory");
 
         let first_arg = first_arg_opt.or_die("No Rust source file specified");
-        let quoted_src = quote(first_arg);
-        if b("expression") {
-            // Evaluating an expression: just debug print it out.
-            format!("println!(\"{{:?}}\",{quoted_src});")
-        } else if b("iterator") {
-            // The expression is anything that implements IntoIterator
-            format!("for val in {quoted_src} {{\n println!(\"{{:?}}\",val);\n}}")
-        } else if b("lines") {
-            // The variable 'line' is available to an expression, evaluated for each line in stdin
-            // But if the expression ends with '}' then don't dump out this value!
-            let first_arg = quoted_src;
-            let stmt = first_arg.trim_end().ends_with('}');
-            let mut s = String::from(
-                "
-                let stdin = io::stdin();
-                for line in stdin.lock().lines() {
-                    let line = line?;
-            ",
-            );
-            s += &if stmt {
-                format!("  {first_arg};")
-            } else {
-                format!("let val = {first_arg};\nprintln!(\"{{:?}}\",val);")
-            };
-            s += "\n}";
-            s
+
+        (false, quote(first_arg.clone()))
+    } else {
+        // otherwise, just a file
+        expression = false;
+        (true, program_contents.or_die("no .rs file"))
+    };
+
+    let mut well_formed = if b("iterator") || b("lines") {
+        false
+    } else {
+        // eprintln!("Checking if snippet has an fn main, and if so, does it compile?...");
+        check_well_formed(verbose, &raw_code)
+    };
+
+    let mut code = if b("expression") {
+        if well_formed {
+            raw_code
         } else {
-            // otherwise, just a file
-            expression = false;
-            save_file = true;
-            program_contents.or_die("no .rs file")
+            // Evaluating an expression: just debug print it out.
+            let expr_code = format!("println!(\"{{:?}}\",{});", raw_code.trim_end());
+            // eprintln!("\nexpr_code={expr_code}\n");
+            expr_code
         }
+    } else if b("iterator") {
+        // The expression is anything that implements IntoIterator
+        format!("for val in {raw_code} {{\n println!(\"{{:?}}\",val);\n}}")
+    } else if b("lines") {
+        // The variable 'line' is available to an expression, evaluated for each line in stdin
+        // But if the expression ends with '}' then don't dump out this value!
+        let mut s = String::from(
+            "
+            let stdin = io::stdin();
+            for line in stdin.lock().lines() {
+                let line = line?;
+        ",
+        );
+        s += &if raw_code.trim_end().ends_with('}') {
+            format!("  {raw_code};")
+        } else {
+            format!("let val = {raw_code};\nprintln!(\"{{:?}}\",val);")
+        };
+        s += "\n}";
+        s
+    } else {
+        raw_code.trim_end().to_string()
     };
 
     // ALL executables go into the Runner bin directory...
     let mut bin = cache::runner_directory().join("bin");
     let mut externs = Vec::new();
 
-    // proper Rust programs are accepted (this is a bit rough)
-    // let proper = code.contains("fn main");
-    let re = Regex::new(r"fn[[:space:]]+main").unwrap();
-    let proper = !b("stdin") && re.is_match(&code);
-    let (rust_file, program) = if proper {
+    // proper Rust programs are accepted
+    // Re-evaluate any snippets that have been massaged
+    if !well_formed {
+        well_formed = check_well_formed(verbose, &code);
+        if verbose {
+            if well_formed {
+                eprintln!("well_formed={well_formed}");
+            } else {
+                eprintln!("still not well_formed");
+            }
+        }
+    }
+    let (rust_file, program) = if well_formed {
+        eprintln!("Found 'fn main' - assuming the snippet is a full program");
         for line in code.lines() {
             if let Some(crate_name) = strutil::word_after(line, "extern crate ") {
                 externs.push(crate_name);
@@ -505,7 +527,7 @@ fn main() {
         );
         code = massaged_code;
         externs = deduced_externs;
-        if expression && !save_file {
+        if expression && !has_save_name {
             // we make up a name...
             bin.push("tmp.rs");
         } else {
@@ -518,13 +540,19 @@ fn main() {
         (bin, program)
     };
 
+    // Compile program unless running precompiled
     if b("run") {
         if !program.exists() {
             args.quit(&format!("program {program:?} does not exist"));
         }
     } else {
-        eprintln!("building ({program:?}) for source {:?}", &rust_file);
+        eprintln!("building program ({program:?}) from source {rust_file:?}",);
         // eprintln!("program=[{program:?}]");
+        if state.build_static {
+            eprintln!("Compiling statically");
+        } else {
+            eprintln!("Compiling dynamically");
+        }
         if !compile_crate(
             &args,
             &state,
@@ -537,16 +565,12 @@ fn main() {
             process::exit(1);
         }
         if verbose {
-            println!("compiled {rust_file:?} successfully");
+            println!("compiled {rust_file:?} successfully to {program:?}");
         }
     }
 
     if b("compile-only") {
-        if state.build_static {
-            eprintln!("Compiling statically");
-        } else {
-            eprintln!("Compiling dynamically");
-        }
+        // copy and return
         let file_name = rust_file.file_name().or_die("no file name?");
         let out_dir = args.get_path("output");
         let home = if out_dir == Path::new("cargo") {
@@ -580,7 +604,7 @@ fn main() {
             eprintln!("Running statically");
         }
     } else {
-        eprintln!("Running dynamically");
+        eprintln!("Running program ({program:?}) dynamically");
         // must make the dynamic cache visible to the program!
         if cfg!(windows) {
             // Windows resolves DLL references on the PATH
@@ -597,8 +621,8 @@ fn main() {
     }
 
     // eprintln!("About to execute program...");
-    let len = 50;
-    eprintln!("{}", "-".repeat(len));
+    let dash_line = "-".repeat(50);
+    eprintln!("{dash_line}");
     let status = builder
         .args(&program_args)
         .status()
@@ -608,5 +632,5 @@ fn main() {
         process::exit(status.code().unwrap_or(-1));
     }
 
-    eprintln!("{}", "-".repeat(len));
+    eprintln!("{dash_line}");
 }

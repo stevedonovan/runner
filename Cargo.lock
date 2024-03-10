@@ -132,8 +132,6 @@ checksum = "b1a46d1a171d865aa5f83f92695765caa047a9b4cbae2cbf37dbd613a793fd4c"
 [[package]]
 name = "lapp"
 version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "60bf485afeba9437a275ad29a9383b03f2978450e7feceffb55be8c0dbad9829"
 
 [[package]]
 name = "lazy_static"

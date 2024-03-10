@@ -147,8 +147,6 @@ pub fn build_static() -> bool {
 }
 
 pub fn create_static(crates: &[String]) {
-    // use std::io::prelude::*;
-
     let static_cache = static_cache_dir();
     let exists = static_cache.exists();
 

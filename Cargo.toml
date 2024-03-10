@@ -19,7 +19,8 @@ no_quote_replacement = []
 
 [dependencies]
 easy-shortcuts = "0.3"
-lapp = "0.4"
+lapp = { path = "/Users/donf/projects/lapp" }
+# lapp = "0.4"
 open = "=5.1.1"
 lazy_static = "1.4"
 semver = "1.0.22"

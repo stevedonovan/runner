@@ -1,4 +1,4 @@
-// miscelaneous string utilities
+// miscellaneous string utilities
 
 // returns the string slice following the target, if any
 pub fn after<'a>(s: &'a str, target: &str) -> Option<&'a str> {

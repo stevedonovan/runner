@@ -123,6 +123,7 @@ cache with some common crates:
 $ runner --add "time json regex"
 ```
 
+A local crate may be specified by its pathname.
 You can add as many crates as you like - the number of available dependencies doesn't
 slow down the linker. Thereafter, you may refer to these crates in snippets. Note that
 by default, `runner` uses 2021 edition since 0.6.0.
@@ -272,13 +273,14 @@ And finally `-n` (or `--lines`) evaluates the expression for each line in
 standard input:
 
 ```
-$ echo "hello there" | runner -n 'line.to_uppercase()'
-"HELLO THERE"
+$ echo "hello\nthere" | runner -n 'line.to_uppercase()'
+"HELLO"
+"THERE"
 ```
 The `-x` flag (`--extern`) allows you to insert an `extern crate` into your
 snippet. This is particularly useful for these one-line shortcuts. For
 example, my `easy-shortcuts` crate has a couple of helper functions. Before
-running these examples, first `runner --add easy-shortcuts` to load it into the
+running the following examples, first `runner --add easy-shortcuts` to load it into the
 static crate, and then `runner -C easy-shortcuts` to dynamically compile it.
 
 ```

@@ -1,5 +1,6 @@
-runner -C memchr
-runner -C aho-corasick
+runner -C memchr = "2.4.0"
+runner -C memchr = "2.6.0"
+runner -C aho-corasick = "0.7.6"
 runner -C utf8-ranges
 runner -C lazy_static
 runner -xlazy_static -C thread_local

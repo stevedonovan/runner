@@ -2,11 +2,14 @@ use crate::cache;
 use crate::crate_utils;
 use crate::state::State;
 use es::traits::Die;
+use regex::Regex;
 
 use std::collections::HashSet;
 use std::env::consts::{DLL_PREFIX, DLL_SUFFIX};
 use std::path::{Path, PathBuf};
 use std::process;
+use std::process::Command;
+use std::process::Stdio;
 
 fn simplify_qualified_names(text: &str) -> String {
     let std = "std::";
@@ -27,7 +30,7 @@ fn simplify_qualified_names(text: &str) -> String {
 // - compile a crate as a dynamic library, given a name and an output dir
 // - compile a program, given a program
 #[allow(clippy::module_name_repetitions)]
-pub fn compile_crate(
+pub(crate) fn compile_crate(
     args: &lapp::Args,
     state: &State,
     crate_name: &str,
@@ -146,7 +149,7 @@ pub fn compile_crate(
     }
 }
 
-pub fn massage_snippet(
+pub(crate) fn massage_snippet(
     code: &str,
     prelude: String,
     extern_crates: Vec<String>,
@@ -155,6 +158,8 @@ pub fn massage_snippet(
     body_prelude: &str,
     is2021: bool,
 ) -> (String, Vec<String>) {
+    // eprintln!("!!! In massage_snippet");
+
     use crate::strutil::{after, split, word_after};
 
     fn indent_line(line: &str) -> String {
@@ -231,6 +236,16 @@ pub fn massage_snippet(
     // and indent the rest!
     body.extend(lines.map(indent_line));
 
+    // Add a final semicolon if there appears to be one missing
+    // match body.trim_end().chars().last() {
+    //     Some(';') | Some('}') => (),
+    //     Some(_) => {
+    //         eprintln!("adding a concluding semicolon to snippet to be safer");
+    //         body += ";"
+    //     }
+    //     None => (),
+    // }
+    eprintln!("body={body}");
     deduced_externs.extend(extern_crates);
     deduced_externs.sort();
     deduced_externs.dedup();
@@ -242,6 +257,7 @@ pub fn massage_snippet(
 fn run(args: Vec<String>) -> std::result::Result<(),Box<dyn std::error::Error+Sync+Send>> {{
 {body}    Ok(())
 }}
+
 fn main() {{
     if let Err(e) = run(std::env::args().collect()) {{
         println!(\"error: {{:?}}\",e);
@@ -251,4 +267,73 @@ fn main() {{
     );
 
     (massaged_code, deduced_externs)
+}
+
+pub(crate) fn check_well_formed(verbose: bool, quoted_src: &String) -> bool {
+    // First do a rough check for essential prerequisite: fn main()
+    let re = Regex::new(r"(?x)fn\ main()").unwrap(); // (?x) accounts for extra whitespace
+    if !re.is_match(quoted_src) {
+        if verbose {
+            println!("source does not contain fn main(), no need to check further");
+        }
+        return false;
+    }
+
+    // Check if it's a valid program
+    use std::io::Write;
+
+    let source_code = quoted_src;
+
+    // Get the home directory
+    #[allow(deprecated)]
+    let home_dir = std::env::home_dir().expect("Failed to get home directory");
+
+    // Combine home directory with the relative path
+    let mut output_path = PathBuf::from(".cargo/bin/metadata");
+    output_path = home_dir.join(output_path);
+
+    let mut rustc_process = Command::new("rustc")
+        .args(["-o", output_path.to_str().unwrap(), "--emit=metadata", "-"])
+        .stdin(Stdio::piped())
+        .stderr(Stdio::piped()) // Capture stderr explicitly
+        .spawn()
+        .expect("Failed to spawn rustc process");
+
+    let mut stdin = rustc_process
+        .stdin
+        .take()
+        .expect("Failed to get stdin pipe");
+
+    // Write the source code to the stdin pipe
+    stdin
+        .write_all(source_code.as_bytes())
+        .expect("Failed to write to stdin pipe");
+
+    // Close the stdin pipe to signal end of input
+    drop(stdin);
+
+    // Wait for the rustc process to finish and collect its output
+    let output = rustc_process
+        .wait_with_output()
+        .expect("Failed to wait for rustc process");
+
+    // Check for errors
+    if output.status.success() {
+        println!("rustc succeeded");
+        true
+    } else {
+        // "rustc failed with error:\n[{: >100}\n]",
+        // String::from_utf8_lossy(&output.stderr).trim_end()
+        if verbose {
+            let mut indented_error = String::new();
+            for line in String::from_utf8_lossy(&output.stderr).lines() {
+                indented_error.push_str(&format!("    {line}\n"));
+            }
+            eprintln!(
+                "snippet not well-formed: rustc check  failed with error:\n[{}]\n",
+                indented_error.trim_end() // Remove trailing newline
+            );
+        }
+        false
+    }
 }

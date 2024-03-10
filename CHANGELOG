@@ -2,6 +2,10 @@
 
 ### New Features
 
+  - New argument --stdin (-I) will accept input from stdin. This is as requested in issue #9, except currently code will be saved.
+    When used with --compile-only it will accept a program name to compile to. Subsequently --run on this will run the program as
+    normal, i.e. without --stdin.
+       ^^^  TODO: tweak behaviour
   - sort and dedup output of --verbose --crates.
 
 ### Fixes
@@ -22,11 +26,21 @@
     best effort will be made to run statically, but the DYLD_FALLBACK_LIBRARY_PATH will be set to prevent likely
     problems with dynamic loading in case the program was compiled dynamically.
   - TODO option to clean out saved artifacts?
-  - Fix issue #9 running from stdin, except currently code will be saved.
-    TODO: tweak behaviour
   - Display whether current action is static or dynamic
   - TODO Test --compile-only with all "expression = true" options.
-  - Change regex example to include libc, do other new or changed examples. E.g. the time one and the "bonzo dog" changes.
+  - TODO Change regex example to include libc, do other new or changed examples. E.g. the time one and the "bonzo dog" changes.
+  - TODO Zed command palette | Task spawn | enter text runner -e '"hello, world!"' | Cmd-Enter
+  - TODO Check out --simplify vs poss --debug
+  - TODO Enhance --doc html not found.
+  -- Added example rand.rs
+  -- TODO File name too long on -e - avoidable? Can use -I, but we don't really need to use program name with -e.
+     "File name too long (os error 63)"
+  -- TODO allow crate versioning in static and dynamic caches
+  -- TODO split up main method in main.rs
+  -- TODO More testing around final semicolon added to snippets.
+  -- Make runner as agnostic as possible to source of code. Check well-formedness using rustc, replacing "rough" "proper" check.
+     Instrument as clearly as possible. Structuring of fn main(), prepare to have methods split out corresponding to the differebt
+     stages of the build and run.
 
 ## 0.5.0 Release
 

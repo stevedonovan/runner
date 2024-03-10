@@ -7,3 +7,4 @@ temp.rs
 .DS_Store
 json.json
 mwe.rs
+src/main.inc
