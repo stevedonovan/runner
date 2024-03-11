@@ -103,7 +103,7 @@ fn main() {
         None
     };
 
-    args.parse_env_args().or_die("bad command line"); 
+    args.parse_env_args().or_die("bad command line");
 
     let program_contents = if let Ok(program) = args.get_string_result("program") {
         let prog = Path::new(&program);
@@ -427,6 +427,11 @@ fn main() {
             // whereas POSIX requires LD_LIBRARY_PATH
             builder.env("LD_LIBRARY_PATH",format!("{}:{}",*RUSTUP_LIB,ch.display()));
         }
+        builder.env(
+            "DYLD_FALLBACK_LIBRARY_PATH",
+            format!("{}:{}", ch.display(), *RUSTUP_LIB),
+        );
+
     }
     let status = builder.args(&program_args)
         .status()
@@ -436,4 +441,3 @@ fn main() {
         process::exit(status.code().unwrap_or(-1));
     }
 }
-
