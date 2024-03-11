@@ -133,7 +133,9 @@ pub(crate) fn compile_crate(
         builder.arg("--extern").arg(&ext);
     }
     builder.arg(crate_path);
-    if simplify {
+    // eprintln!("simplify={simplify}");
+    // Meaning is now reversed
+    if !simplify {
         if isatty::stderr_isatty() {
             builder.args(["--color", "always"]);
         }
@@ -142,6 +144,7 @@ pub(crate) fn compile_crate(
         if !status {
             let err = String::from_utf8_lossy(&output.stderr);
             eprintln!("{}", simplify_qualified_names(&err));
+            // eprintln!("original version:{}", err);
         }
         status
     } else {

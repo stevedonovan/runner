@@ -396,7 +396,7 @@ $ runner -xuniverse -e "universe::answer()"
 This provides a way to get to play with big predefined strings:
 
 ```
-$ cat > text.rs
+$ cat text.rs
 pub const TEXT: &str = "possibly very long string";
 $ runner -C text.rs
 building crate 'text' at text.rs

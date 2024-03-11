@@ -12,7 +12,8 @@ use std::collections::HashSet;
 use std::env::consts::EXE_SUFFIX;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{self, Command};
+use std::process;
+
 use std::string::ToString;
 use std::{env, io};
 
@@ -100,28 +101,6 @@ fn read_file_with_arg_comment(args: &mut lapp::Args, file: &Path) -> (String, bo
         args.clear_used();
     }
     (contents, has_arg_comment)
-}
-
-/// Set the dynamic loader fallback library to prevent error dyld[...]: Library not loaded: @rpath/libstd-...].dylib
-fn setenv_dyn_fallback() {
-    let output = Command::new("rustc")
-        .arg("--print=sysroot")
-        .output()
-        .or_then_die(|e| format!("Failed to execute process to get sysroot: {e}"));
-
-    let sysroot = String::from_utf8(output.stdout)
-        .or_then_die(|e| format!("Failed to retrieve sysroot: {e}"));
-
-    let sysroot = sysroot.trim_end();
-    // eprintln!("sysroot={sysroot:?}");
-
-    let key = "DYLD_FALLBACK_LIBRARY_PATH";
-    let value = format!("${key}:{sysroot}/lib");
-    env::set_var(key, &value);
-
-    let var =
-        env::var(key).or_then_die(|e| format!("Failed to set environment variable {key}: {e}"));
-    assert_eq!(var, value.to_string());
 }
 
 #[allow(clippy::case_sensitive_file_extension_comparisons)]
@@ -257,10 +236,6 @@ fn main() {
 
     // Run Rust code
     let static_state = b("static") && !b("dynamic");
-
-    if !static_state || b("run") {
-        setenv_dyn_fallback();
-    }
 
     // eprintln!(
     //     "b(\"stdin\")={}; b(\"compile-only\")={}",
@@ -618,11 +593,23 @@ fn main() {
                 format!("{}:{}", *RUSTUP_LIB, ch.display()),
             );
         }
+        builder.env(
+            "DYLD_FALLBACK_LIBRARY_PATH",
+            format!("{}:{}", ch.display(), *RUSTUP_LIB),
+        );
+    }
+
+    if verbose {
+        eprintln!(
+            "Running {program:?} with environment [{:?}] and args [{:?}]",
+            builder.get_envs(),
+            builder.get_args()
+        );
     }
 
     // eprintln!("About to execute program...");
     let dash_line = "-".repeat(50);
-    eprintln!("{dash_line}");
+    println!("{dash_line}");
     let status = builder
         .args(&program_args)
         .status()
@@ -632,5 +619,5 @@ fn main() {
         process::exit(status.code().unwrap_or(-1));
     }
 
-    eprintln!("{dash_line}");
+    println!("{dash_line}");
 }
