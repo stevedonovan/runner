@@ -21,16 +21,15 @@
   - Fix minor typos in README and update JSON example, also make the example match.
   - Fix r4 demo in README
   - Fix version reporting (use CARGO_PKG_VERSION)
-  - TODO Fix running program in another dir - or not? Works fine if not hard-coded in program, like filetime.rs
   - Fixed: tolerate --static on --run for files compiled dynamically. When this combination is specified, a
     best effort will be made to run statically, but the DYLD_FALLBACK_LIBRARY_PATH will be set to prevent likely
     problems with dynamic loading in case the program was compiled dynamically.
-  - TODO option to clean out saved artifacts?
-  - Display whether current action is static or dynamic
+  - TODO option to clean out saved artefacts?
+  - In verbose mode, display whether current action is static or dynamic
   - TODO Test --compile-only with all "expression = true" options.
   - TODO Change regex example to include libc, do other new or changed examples. E.g. the time one and the "bonzo dog" changes.
   - TODO Zed command palette | Task spawn | enter text runner -e '"hello, world!"' | Cmd-Enter
-  - TODO Check out --simplify vs poss --debug
+  - TODO Check out --no-simplify vs possible name change to --debug
   - TODO Enhance --doc html not found.
   -- Added example rand.rs
   -- TODO File name too long on -e - avoidable? Can use -I, but we don't really need to use program name with -e.

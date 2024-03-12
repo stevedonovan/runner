@@ -8,6 +8,7 @@ extern crate lazy_static;
 extern crate serde_derive;
 
 use es::traits::Die;
+use lapp::Args;
 use std::collections::HashSet;
 use std::env::consts::EXE_SUFFIX;
 use std::fs;
@@ -82,18 +83,20 @@ Compile and run small Rust snippets
 ";
 
 /// Read source file and interpret any arguments prefixed by "//: ".
-fn read_file_with_arg_comment(args: &mut lapp::Args, file: &Path) -> (String, bool) {
+fn read_file_with_arg_comment(args: &mut Args, file: &Path) -> (String, bool) {
     let contents = fs::read_to_string(file).or_die("cannot read file");
     let first_line = contents.lines().next().or_die("empty file");
     let arg_comment = "//: ";
     let has_arg_comment = first_line.starts_with(arg_comment);
     if has_arg_comment {
         let default_args = &first_line[arg_comment.len()..];
-        eprintln!(
-            "Picked up arguments from {:?}: {default_args}",
-            file.file_name()
-                .or_then_die(|e| format!("error retrieving filename: [{e}]"))
-        );
+        if args.get_bool("verbose") {
+            eprintln!(
+                "Picked up arguments from {:?}: {default_args}",
+                file.file_name()
+                    .or_then_die(|e| format!("error retrieving filename: [{e}]"))
+            );
+        }
 
         let default_args = shlex::split(default_args).or_die("bad comment args");
         args.parse_command_line(default_args)
@@ -105,30 +108,28 @@ fn read_file_with_arg_comment(args: &mut lapp::Args, file: &Path) -> (String, bo
 
 #[allow(clippy::case_sensitive_file_extension_comparisons)]
 fn main() {
-    let mut args = lapp::Args::new(USAGE);
+    let start = std::time::Instant::now();
+    let mut args = Args::new(USAGE);
     args.parse_spec().or_die("bad spec");
-    let env = Path::new("env.rs");
-    let env_prelude = if env.exists() {
-        let (contents, _) = read_file_with_arg_comment(&mut args, env);
-        Some(contents)
-    } else {
-        None
-    };
-
     args.parse_env_args().or_die("bad command line");
+
+    // let b = |p| args.get_bool(p);
 
     let program_contents = if let Ok(program) = args.get_string_result("program") {
         let prog = Path::new(&program);
         if program.ends_with(".rs") {
-            if !prog.is_file() {
+            if args.get_bool("compile-only") && args.get_bool("stdin") {
+                None
+            } else if prog.is_file() {
+                args.clear_used();
+                let (contents, has_arg_comment) = read_file_with_arg_comment(&mut args, prog);
+                if has_arg_comment {
+                    args.parse_env_args().or_die("bad command line");
+                }
+                Some(contents)
+            } else {
                 args.quit("file does not exist");
             }
-            args.clear_used();
-            let (contents, has_arg_comment) = read_file_with_arg_comment(&mut args, prog);
-            if has_arg_comment {
-                args.parse_env_args().or_die("bad command line");
-            }
-            Some(contents)
         } else {
             None
         }
@@ -136,6 +137,15 @@ fn main() {
         None
     };
     // eprintln!("program_contents={program_contents:?}");
+    let env = Path::new("env.rs");
+    eprintln!("env path={env:?}, env exists={}", env.exists());
+    let env_prelude = if env.exists() {
+        let (contents, _) = read_file_with_arg_comment(&mut args, env);
+        eprintln!("contents={contents}");
+        Some(contents)
+    } else {
+        None
+    };
 
     let mut prelude = cache::get_prelude();
     if let Some(env_prelude) = env_prelude {
@@ -236,6 +246,11 @@ fn main() {
 
     // Run Rust code
     let static_state = b("static") && !b("dynamic");
+
+    if b("run") {
+        let mode_req = if b("static") { "static" } else { "dynamic" };
+        eprintln!("Flag --{mode_req} will be ignored since program is precompiled");
+    }
 
     // eprintln!(
     //     "b(\"stdin\")={}; b(\"compile-only\")={}",
@@ -389,7 +404,7 @@ fn main() {
         (true, program_contents.or_die("no .rs file"))
     };
 
-    let mut well_formed = if b("iterator") || b("lines") {
+    let well_formed = if b("iterator") || b("lines") {
         false
     } else {
         // eprintln!("Checking if snippet has an fn main, and if so, does it compile?...");
@@ -433,20 +448,8 @@ fn main() {
     let mut bin = cache::runner_directory().join("bin");
     let mut externs = Vec::new();
 
-    // proper Rust programs are accepted
-    // Re-evaluate any snippets that have been massaged
-    if !well_formed {
-        well_formed = check_well_formed(verbose, &code);
-        if verbose {
-            if well_formed {
-                eprintln!("well_formed={well_formed}");
-            } else {
-                eprintln!("still not well_formed");
-            }
-        }
-    }
+    // Well-formed Rust programs are accepted
     let (rust_file, program) = if well_formed {
-        eprintln!("Found 'fn main' - assuming the snippet is a full program");
         for line in code.lines() {
             if let Some(crate_name) = strutil::word_after(line, "extern crate ") {
                 externs.push(crate_name);
@@ -499,6 +502,7 @@ fn main() {
             &macro_crates,
             &extra,
             edition == "2021",
+            verbose,
         );
         code = massaged_code;
         externs = deduced_externs;
@@ -521,13 +525,11 @@ fn main() {
             args.quit(&format!("program {program:?} does not exist"));
         }
     } else {
-        eprintln!("building program ({program:?}) from source {rust_file:?}",);
-        // eprintln!("program=[{program:?}]");
-        if state.build_static {
-            eprintln!("Compiling statically");
-        } else {
-            eprintln!("Compiling dynamically");
-        }
+        if verbose {
+            eprintln!("Building program ({program:?}) from source {rust_file:?}",);
+            let mode_stem = if state.build_static { "stat" } else { "dynam" };
+            eprintln!("Compiling {mode_stem}ically");
+        };
         if !compile_crate(
             &args,
             &state,
@@ -540,7 +542,7 @@ fn main() {
             process::exit(1);
         }
         if verbose {
-            println!("compiled {rust_file:?} successfully to {program:?}");
+            println!("Compiled {rust_file:?} successfully to {program:?}");
         }
     }
 
@@ -570,16 +572,16 @@ fn main() {
     }
 
     // Finally run the compiled program
-    let ch = cache::get(&state);
+    let ch = cache::get_cache(&state);
     let mut builder = process::Command::new(&program);
     if state.build_static {
-        if b("run") && b("static") {
-            eprintln!("Running statically (provided originally compiled statically)");
-        } else {
+        if verbose && !b("run") {
             eprintln!("Running statically");
         }
     } else {
-        eprintln!("Running program ({program:?}) dynamically");
+        if verbose && !b("run") {
+            eprintln!("Running program ({program:?}) dynamically");
+        }
         // must make the dynamic cache visible to the program!
         if cfg!(windows) {
             // Windows resolves DLL references on the PATH
@@ -607,7 +609,10 @@ fn main() {
         );
     }
 
-    // eprintln!("About to execute program...");
+    if verbose {
+        eprintln!("About to execute program {builder:?}");
+    }
+
     let dash_line = "-".repeat(50);
     println!("{dash_line}");
     let status = builder
@@ -620,4 +625,8 @@ fn main() {
     }
 
     println!("{dash_line}");
+    if verbose {
+        let dur = start.elapsed();
+        eprintln!("Completed in {}.{}s", dur.as_secs(), dur.subsec_millis());
+    }
 }
