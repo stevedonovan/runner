@@ -6,6 +6,7 @@ use regex::Regex;
 
 use std::collections::HashSet;
 use std::env::consts::{DLL_PREFIX, DLL_SUFFIX};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process;
 use std::process::Command;
@@ -60,7 +61,7 @@ pub(crate) fn compile_crate(
     } {
         cfg.push(format!("feature=\"{f}\""));
     }
-    let cache = cache::get(state);
+    let cache = cache::get_cache(state);
     let mut builder = process::Command::new("rustc");
     if state.edition != "2015" {
         builder.args(["--edition", &state.edition]);
@@ -79,7 +80,7 @@ pub(crate) fn compile_crate(
             .args(["-C", "debuginfo=0"]);
         if let Ok(link) = args.get_string_result("link") {
             if verbose {
-                println!("linking against {link}");
+                eprintln!("linking against {link}");
             }
             builder.arg("-L").arg(&link);
         }
@@ -128,14 +129,13 @@ pub(crate) fn compile_crate(
         let full_path = PathBuf::from(&cache).join(&name);
         let ext = format!("{c}={}", full_path.display());
         if verbose {
-            println!("extern {ext}");
+            eprintln!("extern {ext}");
         }
         builder.arg("--extern").arg(&ext);
     }
     builder.arg(crate_path);
-    // eprintln!("simplify={simplify}");
-    // Meaning is now reversed
-    if !simplify {
+    // eprintln!("!!!simplify={simplify}");
+    if simplify {
         if isatty::stderr_isatty() {
             builder.args(["--color", "always"]);
         }
@@ -152,6 +152,7 @@ pub(crate) fn compile_crate(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn massage_snippet(
     code: &str,
     prelude: String,
@@ -160,6 +161,7 @@ pub(crate) fn massage_snippet(
     macro_crates: &HashSet<String>,
     body_prelude: &str,
     is2021: bool,
+    verbose: bool,
 ) -> (String, Vec<String>) {
     // eprintln!("!!! In massage_snippet");
 
@@ -248,7 +250,9 @@ pub(crate) fn massage_snippet(
     //     }
     //     None => (),
     // }
-    eprintln!("body={body}");
+    if verbose {
+        eprintln!("body={body}");
+    };
     deduced_externs.extend(extern_crates);
     deduced_externs.sort();
     deduced_externs.dedup();
@@ -277,14 +281,12 @@ pub(crate) fn check_well_formed(verbose: bool, quoted_src: &String) -> bool {
     let re = Regex::new(r"(?x)fn\ main()").unwrap(); // (?x) accounts for extra whitespace
     if !re.is_match(quoted_src) {
         if verbose {
-            println!("source does not contain fn main(), no need to check further");
+            eprintln!("source does not contain fn main(), no need to check further");
         }
         return false;
     }
 
     // Check if it's a valid program
-    use std::io::Write;
-
     let source_code = quoted_src;
 
     // Get the home directory
@@ -322,7 +324,9 @@ pub(crate) fn check_well_formed(verbose: bool, quoted_src: &String) -> bool {
 
     // Check for errors
     if output.status.success() {
-        println!("rustc succeeded");
+        if verbose {
+            eprintln!("rustc succeeded");
+        }
         true
     } else {
         // "rustc failed with error:\n[{: >100}\n]",

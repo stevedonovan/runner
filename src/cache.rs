@@ -269,7 +269,8 @@ pub fn get_prelude() -> String {
     fs::read_to_string(&prelude).or_die("cannot read prelude")
 }
 
-pub fn get(state: &State) -> PathBuf {
+#[allow(clippy::module_name_repetitions)]
+pub fn get_cache(state: &State) -> PathBuf {
     let mut home = runner_directory();
     if state.build_static {
         home.push(STATIC_CACHE);

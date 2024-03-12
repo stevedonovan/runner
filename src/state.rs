@@ -23,6 +23,4 @@ impl State {
             edition: edition.into(),
         }
     }
-
 }
-
