@@ -5,7 +5,6 @@
   - New argument --stdin (-I) will accept input from stdin. This is as requested in issue #9, except currently code will be saved.
     When used with --compile-only it will accept a program name to compile to. Subsequently --run on this will run the program as
     normal, i.e. without --stdin.
-       ^^^  TODO: tweak behaviour
   - sort and dedup output of --verbose --crates.
 
 ### Fixes

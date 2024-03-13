@@ -12,7 +12,11 @@ use std::process;
 use crate::crate_utils;
 use crate::meta;
 
+use crate::compile;
+use crate::platform::{edit, open};
 use crate_utils::UNSTABLE;
+use lapp::Args;
+use std::ops::ControlFlow;
 
 use crate::state::State;
 
@@ -310,4 +314,176 @@ pub fn get_aliases() -> HashMap<String, String> {
         .lines()
         .filter_map(|s| s.split_at_delim('=').trim()) // split into (String,String)
         .to_map()
+}
+
+pub fn static_cache_ops(
+    args: &Args<'_>,
+    program_contents: &Option<String>,
+    b: impl Fn(&str) -> bool,
+) -> ControlFlow<()> {
+    let verbose = b("verbose");
+
+    let crates = args.get_strings("add");
+    if !crates.is_empty() {
+        create_static(&crates);
+        if program_contents.is_none() {
+            return ControlFlow::Break(());
+        }
+    }
+    let (edit_toml, build, doc, update, cleanup, crates) = (
+        b("edit"),
+        b("build"),
+        b("doc"),
+        b("update"),
+        b("cleanup"),
+        b("crates"),
+    );
+
+    // operations on the static cache
+
+    if edit_toml || build || doc || update || cleanup || crates {
+        let maybe_argument = args.get_string_result("program");
+        let static_cache = static_cache_dir_check();
+        if build || update {
+            env::set_current_dir(&static_cache).or_die("static cache wasn't a directory?");
+            if build {
+                build_static();
+            } else {
+                if let Ok(package) = maybe_argument {
+                    cargo(&["update", "--package", &package]);
+                } else {
+                    cargo(&["update"]);
+                }
+                return ControlFlow::Break(());
+            }
+        } else if doc {
+            let the_crate = crate_utils::proper_crate_name(&if let Ok(file) = maybe_argument {
+                file
+            } else {
+                "static_cache".to_string()
+            });
+            let docs = static_cache.join(format!("target/doc/{the_crate}/index.html"));
+            open(&docs);
+        } else if cleanup {
+            cargo(&["clean"]);
+        } else if crates {
+            let mut m = get_metadata();
+            let mut crates = Vec::new();
+            if let Ok(name) = maybe_argument {
+                crates.push(name);
+                crates.extend(args.get_strings("args"));
+            }
+            m.dump_crates(crates, verbose);
+        } else {
+            // must be edit_toml
+            let toml = static_cache.join("Cargo.toml");
+            edit(&toml);
+        }
+        return ControlFlow::Break(());
+    }
+    ControlFlow::Continue(())
+}
+
+pub fn dynamic_crate_ops(
+    optimized: bool,
+    edition: &str,
+    first_arg: &str,
+    args: &Args<'_>,
+    print_path: bool,
+    compile: bool,
+    file_res: &Option<PathBuf>,
+) -> ControlFlow<()> {
+    let mut state = State::dll(optimized, edition);
+    // plain-jane name is a crate name!
+    if crate_utils::plain_name(first_arg) {
+        // but is it one of Ours? Then we definitely know what the
+        // actual crate name is AND where the source is cached
+        let m = get_metadata();
+        if let Some(e) = m.get_meta_entry(first_arg) {
+            if e.path == Path::new("") {
+                args.quit("please run 'runner --build' to update metadata");
+            }
+            // will be <cargo dir>/src/FILE.rs
+            let path = e.path.parent().unwrap().parent().unwrap();
+            if print_path {
+                println!("{}", path.display());
+            } else {
+                let ci = crate_utils::crate_info(&path.join("Cargo.toml"));
+                // respect the crate's edition!
+                state.edition = ci.edition;
+                // TBD can override --features with features actually
+                // used to build this crate
+                let build_features = &e.features;
+                eprintln!(
+                    "dynamically linking crate '{}' with features [{}] at {}",
+                    e.crate_name,
+                    build_features,
+                    e.path.display()
+                );
+                compile::dlib_or_prog(
+                    args,
+                    &state,
+                    &e.crate_name,
+                    &e.path,
+                    None,
+                    Vec::new(),
+                    build_features
+                        .split_whitespace()
+                        .map(ToString::to_string)
+                        .collect(),
+                );
+            }
+            return ControlFlow::Break(());
+        }
+    } else {
+        if compile {
+            if let Some(file) = file_res {
+                if !file.exists() {
+                    args.quit("no such file or directory for crate compile");
+                }
+                let (crate_name, crate_path) = if file.is_dir() {
+                    match crate_utils::cargo_dir(file) {
+                        Ok((path, cargo_toml)) => {
+                            // this is somewhat dodgy, since the default location can be changed
+                            // Safest bet is to add the crate to the runner static cache
+                            let source = path.join("src").join("lib.rs");
+                            let ci = crate_utils::crate_info(&cargo_toml);
+                            // respect the crate's edition!
+                            state.edition = ci.edition;
+                            (ci.name, source)
+                        }
+                        Err(msg) => args.quit(&msg),
+                    }
+                } else {
+                    // should be just a Rust source file
+                    if file.extension().or_die("expecting extension") != "rs" {
+                        args.quit(
+                            "expecting known crate, dir containing Cargo.toml or Rust source file",
+                        );
+                    }
+                    let name = crate_utils::path_file_name(&file.with_extension(""));
+                    (name, file.clone())
+                };
+                eprintln!(
+                    "compiling crate '{}' at {}",
+                    crate_name,
+                    crate_path.display()
+                );
+                compile::dlib_or_prog(
+                    args,
+                    &state,
+                    &crate_name,
+                    &crate_path,
+                    None,
+                    Vec::new(),
+                    Vec::new(),
+                );
+                return ControlFlow::Break(());
+            }
+            args.quit("--compile specified with no crate name");
+        }
+        // we no longer go for wild goose chase to find crates in the Cargo cache
+        args.quit("not found in the static cache");
+    }
+    ControlFlow::Continue(())
 }

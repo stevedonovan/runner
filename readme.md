@@ -129,7 +129,6 @@ slow down the linker. Thereafter, you may refer to these crates in snippets. Not
 by default, `runner` uses 2021 edition since 0.6.0.
 
 ```rust
-//: --static
 use serde_json::json;
 
 println!(
@@ -165,6 +164,11 @@ then any `runner` arguments specified after "//:" will be merged in with the com
 It is now possible to simply invoke using `runner json.rs`. It's better to keep any special build
 instructions in the file itself, and it means that an editor run action bound to `runner FILE` can be
 made to work in all cases.
+Alternatively you can keep such instructions in the same format in a one-line file called env.rs in the current directory, from where they will apply to all invocations from this directory until the file is removed.
+
+```
+echo '//: -s' > env.rs
+```
 
 `runner` provides various utilities for managing the static cache.
 You can say `runner --edit` to edit the static cache `Cargo.toml`, and `runner --build` to

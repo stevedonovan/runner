@@ -4,13 +4,15 @@ use crate::state::State;
 use es::traits::Die;
 use regex::Regex;
 
+use lapp::Args;
 use std::collections::HashSet;
 use std::env::consts::{DLL_PREFIX, DLL_SUFFIX};
 use std::io::Write;
+use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
-use std::process;
 use std::process::Command;
 use std::process::Stdio;
+use std::{fs, process};
 
 fn simplify_qualified_names(text: &str) -> String {
     let std = "std::";
@@ -30,8 +32,7 @@ fn simplify_qualified_names(text: &str) -> String {
 // handle two useful cases:
 // - compile a crate as a dynamic library, given a name and an output dir
 // - compile a program, given a program
-#[allow(clippy::module_name_repetitions)]
-pub(crate) fn compile_crate(
+pub(crate) fn dlib_or_prog(
     args: &lapp::Args,
     state: &State,
     crate_name: &str,
@@ -150,6 +151,69 @@ pub(crate) fn compile_crate(
     } else {
         builder.status().or_die("can't run rustc").success()
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn program(
+    b: impl Fn(&str) -> bool,
+    program: &PathBuf,
+    args: &Args<'_>,
+    verbose: bool,
+    state: &State,
+    rust_file: &PathBuf,
+    externs: Vec<String>,
+    exe_suffix: &str,
+) -> ControlFlow<()> {
+    if b("run") {
+        if !program.exists() {
+            args.quit(&format!("program {program:?} does not exist"));
+        }
+    } else {
+        if verbose {
+            eprintln!("Building program ({program:?}) from source {rust_file:?}",);
+            let mode_stem = if state.build_static { "stat" } else { "dynam" };
+            eprintln!("Compiling {mode_stem}ically");
+        };
+        if !dlib_or_prog(
+            args,
+            state,
+            "",
+            rust_file,
+            Some(program),
+            externs,
+            Vec::new(),
+        ) {
+            process::exit(1);
+        }
+        if verbose {
+            println!("Compiled {rust_file:?} successfully to {program:?}");
+        }
+    }
+    if b("compile-only") {
+        // copy and return
+        let file_name = rust_file.file_name().or_die("no file name?");
+        let out_dir = args.get_path("output");
+        let home = if out_dir == Path::new("cargo") {
+            let home = crate_utils::cargo_home().join("bin");
+            if !home.is_dir() {
+                // With Windows, standalone installer does not create this directory
+                // (may well be a Bugge)
+                fs::create_dir(&home).or_die("could not create Cargo bin directory");
+                println!(
+                    "creating Cargo bin directory {}\nEnsure it is on your PATH",
+                    home.display()
+                );
+            }
+            home
+        } else {
+            out_dir
+        };
+        let here = home.join(file_name).with_extension(exe_suffix);
+        println!("Copying {} to {}", program.display(), here.display());
+        fs::copy(program, &here).or_die("cannot copy program");
+        return ControlFlow::Break(());
+    }
+    ControlFlow::Continue(())
 }
 
 #[allow(clippy::too_many_arguments)]
