@@ -1,8 +1,8 @@
-pub struct State {
-    pub build_static: bool,
-    pub optimize: bool,
-    pub exe: bool,
-    pub edition: String,
+pub(crate) struct State {
+    pub(crate) build_static: bool,
+    pub(crate) optimize: bool,
+    pub(crate) exe: bool,
+    pub(crate) edition: String,
 }
 
 impl State {

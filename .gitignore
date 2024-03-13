@@ -8,3 +8,6 @@ temp.rs
 json.json
 mwe.rs
 src/main.inc
+.idea/modules.xml
+.idea/runner.iml
+.idea/vcs.xml

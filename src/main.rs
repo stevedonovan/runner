@@ -25,13 +25,15 @@ mod compile;
 mod crate_utils;
 mod meta;
 mod platform;
+mod snippet;
 mod state;
 mod strutil;
 
 use cache::quote;
-use compile::{check_well_formed, massage_snippet};
+use compile::check_well_formed;
 use crate_utils::RUSTUP_LIB;
 use platform::edit;
+use snippet::massage_snippet;
 use state::State;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -112,12 +114,7 @@ fn main() {
     let start = std::time::Instant::now();
 
     // Retrieve and process command-line arguments, and any stored in snippet files or ./env.rs.
-    let mut args = {
-        let mut args = Args::new(USAGE);
-        args.parse_spec().or_die("bad spec");
-        args.parse_env_args().or_die("bad command line");
-        args
-    };
+    let mut args = get_args();
 
     // Get contents of .rs file if provided
     let program_contents = get_contents(&mut args);
@@ -160,34 +157,26 @@ fn main() {
     }
 
     // Decide how to process request
-    let static_state = b("static") && !b("dynamic");
-    if b("run") {
-        let mode_req = if b("static") { "static" } else { "dynamic" };
-        eprintln!("Flag --{mode_req} will be ignored since program is precompiled");
-    }
-    let (first_arg_opt, file_res): (Option<String>, Option<PathBuf>) =
-        if b("stdin") && !b("compile-only") {
-            // "STDIN".to_string()
-            (None, None)
-        } else {
-            // eprintln!("About to call args.get_string(\"program\")...");
-            let first_arg = args.get_string("program");
-            // eprintln!("... it returned first_arg={first_arg}");
-            (Some(first_arg.clone()), Some(PathBuf::from(first_arg)))
-        };
+    let (static_state, maybe_prog_name) = decide(b, &args);
+    let maybe_prog_path: Option<PathBuf> = maybe_prog_name.as_ref().map(PathBuf::from);
 
-    // let file = PathBuf::from(&first_arg);
     let optimized = args.get_bool("optimize");
     let edition = args.get_string("edition");
 
     // Dynamically linking crates (experimental!)
     let (print_path, compile) = (b("crate-path"), b("compile"));
     if print_path || compile {
-        let Some(first_arg) = &first_arg_opt else {
+        let Some(program) = &maybe_prog_name else {
             args.quit("crate operation requested with no crate name")
         };
         if let ControlFlow::Break(()) = cache::dynamic_crate_ops(
-            optimized, &edition, first_arg, &args, print_path, compile, &file_res,
+            optimized,
+            &edition,
+            program,
+            &args,
+            print_path,
+            compile,
+            &maybe_prog_path,
         ) {
             return;
         }
@@ -195,17 +184,15 @@ fn main() {
 
     let state = State::exe(static_state, optimized, &edition);
 
-    // Out??? We'll pass rest of arguments to program
-
     // Prepare Rust code.
-    let (program_args, expression, has_save_name, raw_code) =
-        prepare_rust_code(&args, b, first_arg_opt, program_contents);
+    let (program_args, source_file, has_save_name, raw_code) =
+        prepare_rust_code(&args, b, maybe_prog_name, program_contents);
 
     // Check if already a program
     let well_formed = if b("iterator") || b("lines") {
         false
     } else {
-        // eprintln!("Checking if snippet has an fn main, and if so, does it compile?...");
+        // eprintln!("Checking if snippet has a fn main, and if so, does it compile?...");
         check_well_formed(verbose, &raw_code)
     };
 
@@ -219,22 +206,21 @@ fn main() {
     // If code is a snippet, transform it into a Rust program.
     // 'Proper' (well-formed) Rust programs are accepted
     let (rust_file, program) = if well_formed {
-        finalize_program(&code, &mut externs, file_res, &mut bin, exe_suffix)
+        finalize_program(&code, &mut externs, maybe_prog_path, &mut bin, exe_suffix)
     } else {
         // otherwise we must create a proper program from the snippet
         // and write this as a file in the Runner bin directory...
         snippet_to_program(
             &args,
-            b,
             prelude,
             code,
             &edition,
-            verbose,
+            // verbose,
             &mut externs,
-            expression,
+            source_file,
             has_save_name,
             bin,
-            &file_res,
+            &maybe_prog_path,
             exe_suffix,
         )
     };
@@ -257,6 +243,34 @@ fn main() {
         let dur = start.elapsed();
         eprintln!("Completed in {}.{}s", dur.as_secs(), dur.subsec_millis());
     }
+}
+
+fn decide(b: impl Fn(&str) -> bool, args: &Args<'_>) -> (bool, Option<String>) {
+    let static_state = b("static") && !b("dynamic");
+    if b("run") {
+        let mode_req = if b("static") { "static" } else { "dynamic" };
+        eprintln!("Flag --{mode_req} will be ignored since program is precompiled");
+    }
+    let maybe_prog_name: Option<String> = if b("stdin") && !b("compile-only") {
+        eprintln!("1. program=stdin");
+        Some("stdin".to_string())
+    } else {
+        let program = args.get_string("program");
+        eprintln!("2. program={program}");
+        Some(program.clone())
+    };
+    (static_state, maybe_prog_name)
+}
+
+// Retrieve the command-line arguments
+fn get_args() -> Args<'static> {
+    let args = {
+        let mut args = Args::new(USAGE);
+        args.parse_spec().or_die("bad spec");
+        args.parse_env_args().or_die("bad command line");
+        args
+    };
+    args
 }
 
 fn get_ready(
@@ -322,7 +336,7 @@ fn run(verbose: bool, mut builder: process::Command, program_args: &[String], pr
 fn finalize_program(
     code: &str,
     externs: &mut Vec<String>,
-    file_res: Option<PathBuf>,
+    maybe_prog_path: Option<PathBuf>,
     bin: &mut PathBuf,
     exe_suffix: &str,
 ) -> (PathBuf, PathBuf) {
@@ -332,24 +346,23 @@ fn finalize_program(
         }
     }
     // the 'proper' case - use the file name part
-    let file = file_res.or_die("no such file or directory as for source program");
+    let file = maybe_prog_path.or_die("no such file or directory as requested for source program");
     bin.push(file.file_name().unwrap());
     let program = bin.with_extension(exe_suffix);
     (file, program)
 }
+
 #[allow(clippy::too_many_arguments)]
 fn snippet_to_program(
     args: &Args<'_>,
-    b: impl Fn(&str) -> bool,
     prelude: String,
     mut code: String,
     edition: &str,
-    verbose: bool,
     externs: &mut Vec<String>,
-    expression: bool,
+    source_file: bool,
     has_save_name: bool,
     mut bin: PathBuf,
-    file_res: &Option<PathBuf>,
+    maybe_prog_path: &Option<PathBuf>,
     exe_suffix: &str,
 ) -> (PathBuf, PathBuf) {
     let mut extern_crates = args.get_strings("extern");
@@ -363,21 +376,21 @@ fn snippet_to_program(
     }
     let macro_crates: HashSet<_> = macro_crates.into_iter().collect();
 
-    let mut extra = args.get_string("prepend");
-    if !extra.is_empty() {
+    let mut prepend = args.get_string("prepend");
+    if !prepend.is_empty() {
         // eprintln!(
         //     "1. before: extra={extra:?}, extra.as_bytes()={:?}",
         //     extra.as_bytes()
         // );
-        extra = extra.replace("\\n", "\n"); // Issue #5: undo escaping to restore what the user entered
-        extra.push(';');
-        extra.push('\n'); // Issue #5 Add a line feed to separate extra section from body
-                          // eprintln!(
-                          //     "2. after: extra={extra}, extra.as_bytes()={:?}",
-                          //     extra.as_bytes()
-                          // );
+        prepend = prepend.replace("\\n", "\n"); // Issue #5: undo escaping to restore what the user entered
+        prepend.push(';');
+        prepend.push('\n'); // Issue #5 Add a line feed to separate extra section from body
+                            // eprintln!(
+                            //     "2. after: extra={extra}, extra.as_bytes()={:?}",
+                            //     extra.as_bytes()
+                            // );
     }
-    let maybe_prelude = if b("no-prelude") {
+    let maybe_prelude = if bool_var("no-prelude", args) {
         String::new()
     } else {
         prelude
@@ -389,17 +402,17 @@ fn snippet_to_program(
         extern_crates,
         wild_crates,
         &macro_crates,
-        &extra,
-        edition == "2021",
-        verbose,
+        &prepend,
+        edition > "2015",
+        bool_var("verbose", args),
     );
     code = massaged_code;
     *externs = deduced_externs;
-    if expression && !has_save_name {
+    if !source_file && !has_save_name {
         // we make up a name...
         bin.push("tmp.rs");
     } else {
-        let file = file_res.clone().or_die("no such file or directory");
+        let file = maybe_prog_path.clone().or_die("no such file or directory");
         bin.push(file.file_name().unwrap());
         bin.set_extension("rs");
     }
@@ -447,11 +460,11 @@ fn preprocess_code_type(b: impl Fn(&str) -> bool, well_formed: bool, raw_code: S
 fn prepare_rust_code(
     args: &Args<'_>,
     b: impl Fn(&str) -> bool,
-    first_arg_opt: Option<String>,
+    maybe_prog_name: Option<String>,
     program_contents: Option<String>,
 ) -> (Vec<String>, bool, bool, String) {
     let program_args = args.get_strings("args");
-    let mut expression = true;
+    let mut source_file = false;
     let (has_save_name, raw_code) = if b("stdin") {
         let mut s = String::new();
 
@@ -466,19 +479,20 @@ fn prepare_rust_code(
         }
 
         // println!("Content from stdin:\n{}", s);
-        (b("compile-only"), quote(s))
+
+        (b("compile-only") || maybe_prog_name.is_some(), quote(s))
     } else if b("expression") || b("iterator") || b("lines") {
         // let file = file_res.clone().or_die("no such file or directory");
 
-        let first_arg = first_arg_opt.or_die("No Rust source file specified");
+        let first_arg = maybe_prog_name.or_die("No Rust source file specified");
 
         (false, quote(first_arg.clone()))
     } else {
         // otherwise, just a file
-        expression = false;
+        source_file = true;
         (true, program_contents.or_die("no .rs file"))
     };
-    (program_args, expression, has_save_name, raw_code)
+    (program_args, source_file, has_save_name, raw_code)
 }
 
 fn check_combos(b: impl Fn(&str) -> bool, args: &Args<'_>) {
