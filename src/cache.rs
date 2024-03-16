@@ -387,7 +387,7 @@ pub fn static_cache_ops(
 pub fn dynamic_crate_ops(
     optimized: bool,
     edition: &str,
-    first_arg: &str,
+    crate_name: &str,
     args: &Args<'_>,
     print_path: bool,
     compile: bool,
@@ -395,11 +395,11 @@ pub fn dynamic_crate_ops(
 ) -> ControlFlow<()> {
     let mut state = State::dll(optimized, edition);
     // plain-jane name is a crate name!
-    if crate_utils::plain_name(first_arg) {
+    if crate_utils::plain_name(crate_name) {
         // but is it one of Ours? Then we definitely know what the
         // actual crate name is AND where the source is cached
         let m = get_metadata();
-        if let Some(e) = m.get_meta_entry(first_arg) {
+        if let Some(e) = m.get_meta_entry(crate_name) {
             if e.path == Path::new("") {
                 args.quit("please run 'runner --build' to update metadata");
             }

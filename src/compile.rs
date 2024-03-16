@@ -35,8 +35,8 @@ pub(crate) fn dlib_or_prog(
     args: &lapp::Args,
     state: &State,
     crate_name: &str,
-    crate_path: &Path,
-    output_program: Option<&Path>,
+    src_path: &Path,
+    exe_path: Option<&Path>,
     mut extern_crates: Vec<String>,
     features: Vec<String>,
 ) -> bool {
@@ -88,7 +88,7 @@ pub(crate) fn dlib_or_prog(
     // implicitly linking against crates in the dynamic or static cache
     builder.arg("-L").arg(&cache);
     if state.exe {
-        builder.arg("-o").arg(output_program.unwrap());
+        builder.arg("-o").arg(exe_path.unwrap());
     } else {
         // as a dynamic library
         builder
@@ -133,7 +133,7 @@ pub(crate) fn dlib_or_prog(
         }
         builder.arg("--extern").arg(&ext);
     }
-    builder.arg(crate_path);
+    builder.arg(src_path);
     // eprintln!("!!!simplify={simplify}");
     if simplify {
         if isatty::stderr_isatty() {
@@ -156,21 +156,21 @@ pub(crate) fn dlib_or_prog(
 // Compiles a program
 pub fn program(
     b: impl Fn(&str) -> bool,
-    program: &PathBuf,
+    exe_path: &PathBuf,
     args: &Args<'_>,
     verbose: bool,
     state: &State,
-    rust_path: &PathBuf,
+    rs_path: &PathBuf,
     externs: Vec<String>,
     exe_suffix: &str,
 ) -> ControlFlow<()> {
     if b("run") {
-        if !program.exists() {
-            args.quit(&format!("program {program:?} does not exist"));
+        if !exe_path.exists() {
+            args.quit(&format!("program {exe_path:?} does not exist"));
         }
     } else {
         if verbose {
-            eprintln!("Building program ({program:?}) from source {rust_path:?}",);
+            eprintln!("Building program ({exe_path:?}) from source {rs_path:?}",);
             let mode_stem = if state.build_static { "stat" } else { "dynam" };
             eprintln!("Compiling {mode_stem}ically");
         };
@@ -178,20 +178,20 @@ pub fn program(
             args,
             state,
             "",
-            rust_path,
-            Some(program),
+            rs_path,
+            Some(exe_path),
             externs,
             Vec::new(),
         ) {
             process::exit(1);
         }
         if verbose {
-            println!("Compiled {rust_path:?} successfully to {program:?}");
+            println!("Compiled {rs_path:?} successfully to {exe_path:?}");
         }
     }
     if b("compile-only") {
         // copy and return
-        let file_name = rust_path.file_name().or_die("no file name?");
+        let file_name = rs_path.file_name().or_die("no file name?");
         let out_dir = args.get_path("output");
         let home = if out_dir == Path::new("cargo") {
             let home = crate_utils::cargo_home().join("bin");
@@ -209,8 +209,8 @@ pub fn program(
             out_dir
         };
         let here = home.join(file_name).with_extension(exe_suffix);
-        println!("Copying {} to {}", program.display(), here.display());
-        fs::copy(program, &here).or_die("cannot copy program");
+        println!("Copying {} to {}", exe_path.display(), here.display());
+        fs::copy(exe_path, &here).or_die("cannot copy program");
         return ControlFlow::Break(());
     }
     ControlFlow::Continue(())

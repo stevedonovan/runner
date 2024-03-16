@@ -173,10 +173,10 @@ fn main() {
 
     // Decide how to process request
     eprintln!("Before decide");
-    let (static_state, maybe_prog_name) = decide(b, &args);
+    let (static_state, maybe_src_name) = decide(b, &args);
     eprintln!("After decide");
-    let maybe_prog_path: Option<PathBuf> = maybe_prog_name.as_ref().map(PathBuf::from);
-    eprintln!("maybe_prog_path={maybe_prog_path:?}");
+    let maybe_src_path: Option<PathBuf> = maybe_src_name.as_ref().map(PathBuf::from);
+    eprintln!("maybe_prog_path={maybe_src_path:?}");
 
     let optimized = args.get_bool("optimize");
     let edition = args.get_string("edition");
@@ -184,17 +184,17 @@ fn main() {
     // Dynamically linking crates (experimental!)
     let (print_path, compile) = (b("crate-path"), b("compile"));
     if print_path || compile {
-        let Some(program) = &maybe_prog_name else {
+        let Some(crate_name) = &maybe_src_name else {
             args.quit("crate operation requested with no crate name")
         };
         if let ControlFlow::Break(()) = cache::dynamic_crate_ops(
             optimized,
             &edition,
-            program,
+            crate_name,
             &args,
             print_path,
             compile,
-            &maybe_prog_path,
+            &maybe_src_path,
         ) {
             return;
         }
@@ -204,7 +204,7 @@ fn main() {
 
     // Prepare Rust code.
     let (program_args, source_file, has_save_name, raw_code) =
-        prepare_rust_code(&args, b, maybe_prog_name, program_contents);
+        prepare_rust_code(&args, b, maybe_src_name, program_contents);
 
     // Check if already a program
     let well_formed = if b("iterator") || b("lines") {
@@ -219,51 +219,55 @@ fn main() {
     let code = preprocess_code_type(b, well_formed, raw_code);
     eprintln!("After preprocess_code_type");
 
-    // ALL executables go into the Runner bin directory...
-    let mut bin = cache::runner_directory().join("bin");
-    let mut src = bin.clone();
+    // ALL source and executables go into the Runner bin directory...
+    let target_dir = cache::runner_directory().join("bin");
+    let mut src_path: PathBuf = target_dir.clone();
     let mut externs = Vec::new();
 
     // If code is a snippet, transform it into a Rust program.
     // 'Proper' (well-formed) Rust programs are accepted
-    let (rust_file, program) = if well_formed {
+    let (rs_name, exe_path) = if well_formed {
         eprintln!("Before finalize_program");
         finalize_program(
             &code,
             &mut externs,
-            maybe_prog_path.clone(),
-            bin,
+            maybe_src_path.clone(),
+            &target_dir,
             exe_suffix,
         )
     } else {
         // otherwise we must create a proper program from the snippet
         // and write this as a file in the Runner bin directory...
         eprintln!("Before snippet_to_program");
+        let mut rs_path = target_dir.clone();
         {
             let code = snippet_to_program(&args, &code, &edition, &mut externs, prelude);
             if !source_file && !has_save_name {
                 // we make up a name...
-                bin.push("tmp.rs");
+                rs_path.push("tmp.rs");
             } else {
-                let file = maybe_prog_path.clone().or_die("no such file or directory");
-                bin.push(file.file_name().unwrap());
-                bin.set_extension("rs");
+                let rs_name = maybe_src_path.clone().or_die("no such file or directory");
+                rs_path.push(rs_name.file_name().unwrap());
+                rs_path.set_extension("rs");
             }
-            eprintln!("1. Writing code for {maybe_prog_path:?} to bin={bin:?}");
-            fs::write(&bin, code).or_die("cannot write code");
+            eprintln!("1. Writing code for {maybe_src_path:?} to bin={target_dir:?}");
+            fs::write(&rs_path, code).or_die("cannot write code");
         }
-        let program = bin.with_extension(exe_suffix);
-        (bin, program)
+        let mut exe_path = target_dir.clone();
+        let exe_stem = maybe_src_path.clone().or_die("no such file or directory");
+        exe_path.push(exe_stem.file_name().unwrap());
+        exe_path.set_extension(exe_suffix);
+        (rs_path, exe_path)
     };
 
-    eprintln!("rust_file={rust_file:?}");
+    eprintln!("rs_name={rs_name:?}");
     // Compile program unless running precompiled
-    src.push(rust_file);
-    let rust_path = src.with_extension("rs");
+    src_path.push(rs_name);
+    let rs_path = src_path.with_extension("rs");
 
     eprintln!("Before compile::program");
     if let ControlFlow::Break(()) = compile::program(
-        b, &program, &args, verbose, &state, &rust_path, externs, exe_suffix,
+        b, &exe_path, &args, verbose, &state, &rs_path, externs, exe_suffix,
     ) {
         eprintln!("After compile::program");
         return;
@@ -272,12 +276,12 @@ fn main() {
     // Run Rust code
     // Ready program environment for execution
     eprintln!("Before get_ready");
-    let builder = get_ready(&state, &program, verbose, b);
+    let builder = get_ready(&state, &exe_path, verbose, b);
     eprintln!("After get_ready");
 
     // Finally run the compiled program
     eprintln!("Before run");
-    run(verbose, builder, &program_args, &program);
+    run(verbose, builder, &program_args, &exe_path);
     eprintln!("After run");
 
     // if verbose {
@@ -343,7 +347,7 @@ fn decide(b: impl Fn(&str) -> bool, args: &Args<'_>) -> (bool, Option<String>) {
         let mode_req = if b("static") { "static" } else { "dynamic" };
         eprintln!("Flag --{mode_req} will be ignored since program is precompiled");
     }
-    let maybe_prog_name: Option<String> = if b("stdin") && !b("compile-only") {
+    let maybe_src_name: Option<String> = if b("stdin") && !b("compile-only") {
         // eprintln!("1. program=stdin");
         Some("stdin".to_string())
     } else {
@@ -351,7 +355,7 @@ fn decide(b: impl Fn(&str) -> bool, args: &Args<'_>) -> (bool, Option<String>) {
         // eprintln!("2. program={program}");
         Some(program.clone())
     };
-    (static_state, maybe_prog_name)
+    (static_state, maybe_src_name)
 }
 
 // Retrieve the command-line arguments
@@ -429,7 +433,7 @@ fn finalize_program(
     code: &str,
     externs: &mut Vec<String>,
     maybe_prog_path: Option<PathBuf>,
-    mut bin: PathBuf,
+    target_dir: &Path,
     exe_suffix: &str,
 ) -> (PathBuf, PathBuf) {
     for line in code.lines() {
@@ -439,18 +443,19 @@ fn finalize_program(
     }
     // the 'proper' case - use the file name part
     let file = maybe_prog_path.or_die("no such file or directory as requested for source program");
-    bin.push(file.file_name().unwrap());
-    let program = bin.with_extension(exe_suffix);
-    let rust_path = bin.with_extension("rs");
+    let mut path_stem = target_dir.to_path_buf();
+    path_stem.push(file.file_name().unwrap());
+    let exe_path = path_stem.with_extension(exe_suffix); // Path of final executable
+    let rs_path = target_dir.with_extension("rs"); // Path of final source file
 
-    eprintln!("2. Writing code for {file:?} to rust_path={rust_path:?}");
-    eprintln!("In finalize_program: head of code is:");
-    for line in code.lines().take(10) {
-        eprintln!("{line}");
-    }
+    // eprintln!("2. Writing code for {file:?} to rust_path={rs_path:?}");
+    // eprintln!("In finalize_program: head of code is:");
+    // for line in code.lines().take(10) {
+    //     eprintln!("{line}");
+    // }
 
-    fs::write(&rust_path, code).or_die("cannot write code");
-    (bin, program)
+    fs::write(&rs_path, code).or_die("cannot write code");
+    (rs_path, exe_path)
 }
 
 fn preprocess_code_type(b: impl Fn(&str) -> bool, well_formed: bool, raw_code: String) -> String {
