@@ -123,6 +123,8 @@ impl<T> From<T> for PrettyError<T> {
 }
 
 #[allow(clippy::case_sensitive_file_extension_comparisons)]
+// TODO: remove #[allow(clippy::too_many_lines)]
+#[allow(clippy::too_many_lines)]
 fn main() {
     let start = std::time::Instant::now();
 
@@ -170,7 +172,9 @@ fn main() {
     }
 
     // Decide how to process request
+    eprintln!("Before decide");
     let (static_state, maybe_prog_name) = decide(b, &args);
+    eprintln!("After decide");
     let maybe_prog_path: Option<PathBuf> = maybe_prog_name.as_ref().map(PathBuf::from);
     eprintln!("maybe_prog_path={maybe_prog_path:?}");
 
@@ -211,7 +215,9 @@ fn main() {
     };
 
     // Special handling for different cases
+    eprintln!("Before preprocess_code_type");
     let code = preprocess_code_type(b, well_formed, raw_code);
+    eprintln!("After preprocess_code_type");
 
     // ALL executables go into the Runner bin directory...
     let mut bin = cache::runner_directory().join("bin");
@@ -221,52 +227,114 @@ fn main() {
     // If code is a snippet, transform it into a Rust program.
     // 'Proper' (well-formed) Rust programs are accepted
     let (rust_file, program) = if well_formed {
+        eprintln!("Before finalize_program");
         finalize_program(
             &code,
             &mut externs,
             maybe_prog_path.clone(),
-            &mut bin,
+            bin,
             exe_suffix,
         )
     } else {
         // otherwise we must create a proper program from the snippet
         // and write this as a file in the Runner bin directory...
-        snippet_to_program(
-            &args,
-            prelude,
-            code,
-            &edition,
-            // verbose,
-            &mut externs,
-            source_file,
-            has_save_name,
-            bin,
-            &maybe_prog_path,
-            exe_suffix,
-        )
+        eprintln!("Before snippet_to_program");
+        {
+            let code = snippet_to_program(&args, &code, &edition, &mut externs, prelude);
+            if !source_file && !has_save_name {
+                // we make up a name...
+                bin.push("tmp.rs");
+            } else {
+                let file = maybe_prog_path.clone().or_die("no such file or directory");
+                bin.push(file.file_name().unwrap());
+                bin.set_extension("rs");
+            }
+            eprintln!("1. Writing code for {maybe_prog_path:?} to bin={bin:?}");
+            fs::write(&bin, code).or_die("cannot write code");
+        }
+        let program = bin.with_extension(exe_suffix);
+        (bin, program)
     };
 
+    eprintln!("rust_file={rust_file:?}");
     // Compile program unless running precompiled
     src.push(rust_file);
     let rust_path = src.with_extension("rs");
 
+    eprintln!("Before compile::program");
     if let ControlFlow::Break(()) = compile::program(
         b, &program, &args, verbose, &state, &rust_path, externs, exe_suffix,
     ) {
+        eprintln!("After compile::program");
         return;
     }
 
     // Run Rust code
     // Ready program environment for execution
+    eprintln!("Before get_ready");
     let builder = get_ready(&state, &program, verbose, b);
+    eprintln!("After get_ready");
 
     // Finally run the compiled program
+    eprintln!("Before run");
     run(verbose, builder, &program_args, &program);
+    eprintln!("After run");
 
     // if verbose {
     let dur = start.elapsed();
     eprintln!("Completed in {}.{}s", dur.as_secs(), dur.subsec_millis());
     // }
+}
+
+// TODO Move to snippet.rs
+fn snippet_to_program<'a>(
+    args: &Args<'a>,
+    code: &str,
+    edition: &str,
+    externs: &'a mut Vec<String>,
+    prelude: String,
+) -> String {
+    let edition: &str = edition;
+    let externs: &mut Vec<String> = externs;
+    let mut extern_crates = args.get_strings("extern");
+    eprintln!("0. extern_crates from args.get_strings(\"extern\")={extern_crates:?}");
+    extern_crates.dedup();
+    // Sometimes seems to happen with lapp.
+    let wild_crates = args.get_strings("wild");
+    let macro_crates = args.get_strings("macro");
+    if !wild_crates.is_empty() {
+        extern_crates.extend(wild_crates.iter().cloned());
+    }
+    if !macro_crates.is_empty() {
+        extern_crates.extend(macro_crates.iter().cloned());
+    }
+    let macro_crates: HashSet<_> = macro_crates.into_iter().collect();
+
+    let mut prepend = args.get_string("prepend");
+    if !prepend.is_empty() {
+        prepend = prepend.replace("\\n", "\n"); // Issue #5: undo escaping to restore what the user entered
+        prepend.push(';');
+        prepend.push('\n'); // Issue #5 Add a line feed to separate extra section from body
+    }
+    let maybe_prelude = if bool_var("no-prelude", args) {
+        String::new()
+    } else {
+        prelude
+    };
+
+    let (massaged_code, deduced_externs) = massage_snippet(
+        code,
+        maybe_prelude,
+        extern_crates,
+        wild_crates,
+        &macro_crates,
+        &prepend,
+        edition > "2015",
+        bool_var("verbose", args),
+    );
+    eprintln!("1. deduced_externs = {deduced_externs:?}");
+    *externs = deduced_externs;
+    massaged_code
 }
 
 fn decide(b: impl Fn(&str) -> bool, args: &Args<'_>) -> (bool, Option<String>) {
@@ -361,7 +429,7 @@ fn finalize_program(
     code: &str,
     externs: &mut Vec<String>,
     maybe_prog_path: Option<PathBuf>,
-    bin: &mut PathBuf,
+    mut bin: PathBuf,
     exe_suffix: &str,
 ) -> (PathBuf, PathBuf) {
     for line in code.lines() {
@@ -373,70 +441,15 @@ fn finalize_program(
     let file = maybe_prog_path.or_die("no such file or directory as requested for source program");
     bin.push(file.file_name().unwrap());
     let program = bin.with_extension(exe_suffix);
-    (file, program)
-}
+    let rust_path = bin.with_extension("rs");
 
-#[allow(clippy::too_many_arguments)]
-fn snippet_to_program(
-    args: &Args<'_>,
-    prelude: String,
-    mut code: String,
-    edition: &str,
-    externs: &mut Vec<String>,
-    source_file: bool,
-    has_save_name: bool,
-    mut bin: PathBuf,
-    maybe_prog_path: &Option<PathBuf>,
-    exe_suffix: &str,
-) -> (PathBuf, PathBuf) {
-    let mut extern_crates = args.get_strings("extern");
-    eprintln!("0. extern_crates from args.get_strings(\"extern\")={extern_crates:?}");
-    extern_crates.dedup(); // Sometimes seems to happen with lapp.
-    let wild_crates = args.get_strings("wild");
-    let macro_crates = args.get_strings("macro");
-    if !wild_crates.is_empty() {
-        extern_crates.extend(wild_crates.iter().cloned());
+    eprintln!("2. Writing code for {file:?} to rust_path={rust_path:?}");
+    eprintln!("In finalize_program: head of code is:");
+    for line in code.lines().take(10) {
+        eprintln!("{line}");
     }
-    if !macro_crates.is_empty() {
-        extern_crates.extend(macro_crates.iter().cloned());
-    }
-    let macro_crates: HashSet<_> = macro_crates.into_iter().collect();
 
-    let mut prepend = args.get_string("prepend");
-    if !prepend.is_empty() {
-        prepend = prepend.replace("\\n", "\n"); // Issue #5: undo escaping to restore what the user entered
-        prepend.push(';');
-        prepend.push('\n'); // Issue #5 Add a line feed to separate extra section from body
-    }
-    let maybe_prelude = if bool_var("no-prelude", args) {
-        String::new()
-    } else {
-        prelude
-    };
-
-    let (massaged_code, deduced_externs) = massage_snippet(
-        &code,
-        maybe_prelude,
-        extern_crates,
-        wild_crates,
-        &macro_crates,
-        &prepend,
-        edition > "2015",
-        bool_var("verbose", args),
-    );
-    eprintln!("1. deduced_externs = {deduced_externs:?}");
-    code = massaged_code;
-    *externs = deduced_externs;
-    if !source_file && !has_save_name {
-        // we make up a name...
-        bin.push("tmp.rs");
-    } else {
-        let file = maybe_prog_path.clone().or_die("no such file or directory");
-        bin.push(file.file_name().unwrap());
-        bin.set_extension("rs");
-    }
-    fs::write(&bin, &code).or_die("cannot write code");
-    let program = bin.with_extension(exe_suffix);
+    fs::write(&rust_path, code).or_die("cannot write code");
     (bin, program)
 }
 
@@ -473,6 +486,10 @@ fn preprocess_code_type(b: impl Fn(&str) -> bool, well_formed: bool, raw_code: S
     } else {
         raw_code.trim_end().to_string()
     };
+    eprintln!("In preprocess_code_type: head of code is:");
+    for line in code.lines().take(10) {
+        eprintln!("{line}");
+    }
     code
 }
 

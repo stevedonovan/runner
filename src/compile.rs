@@ -153,6 +153,7 @@ pub(crate) fn dlib_or_prog(
 }
 
 #[allow(clippy::too_many_arguments)]
+// Compiles a program
 pub fn program(
     b: impl Fn(&str) -> bool,
     program: &PathBuf,

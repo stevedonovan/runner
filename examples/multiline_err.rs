@@ -14,16 +14,7 @@ impl<T: fmt::Display> fmt::Debug for PrettyError<T> {
     }
 }
 
-// fn err1() -> Result<(), PrettyError<String>> {
-//     Err(String::from("Line1\nLine2"))?;
-//     Ok(())
-// }
-
 fn main() {
-    let fmt = |e: Box<dyn std::error::Error>, f: &mut std::fmt::Formatter<'_>| -> fmt::Result {
-        std::fmt::Display::fmt(&e, f)
-    };
-
     let err1 = || -> Result<(), PrettyError<String>> {
         Err(String::from("Line1\nLine2"))?;
         Ok(())

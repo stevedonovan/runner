@@ -1,5 +1,7 @@
 use std::collections::HashSet;
 
+// TODO use me
+#[allow(dead_code)]
 pub(crate) struct Snippet<'a> {
     a_gt2015: bool,
     b_verbose: bool,
@@ -132,7 +134,7 @@ fn main() {{
     );
 
     if verbose {
-        eprintln!("massaged_code={massaged_code}, deduced_externs={deduced_externs:?}")
+        eprintln!("massaged_code={massaged_code}, deduced_externs={deduced_externs:?}");
     }
     (massaged_code, deduced_externs)
 }
