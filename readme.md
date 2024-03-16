@@ -164,7 +164,7 @@ then any `runner` arguments specified after "//:" will be merged in with the com
 It is now possible to simply invoke using `runner json.rs`. It's better to keep any special build
 instructions in the file itself, and it means that an editor run action bound to `runner FILE` can be
 made to work in all cases.
-Alternatively you can keep such instructions in the same format in a one-line file called env.rs in the current directory, from where they will apply to all invocations from this directory until the file is removed.
+Alternatively you can keep such instructions in the same format in a (TODO: one-line?) file called env.rs in the current directory, from where they will apply to all invocations from this directory until the file is removed.
 
 ```
 echo '//: -s' > env.rs

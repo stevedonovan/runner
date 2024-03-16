@@ -22,8 +22,6 @@ pub(crate) fn massage_snippet(
     gt2015: bool,
     verbose: bool,
 ) -> (String, Vec<String>) {
-    // eprintln!("!!! In massage_snippet");
-
     use crate::cache;
     use crate::strutil::{after, split, word_after};
 
@@ -70,14 +68,14 @@ pub(crate) fn massage_snippet(
         // Particularly need to force crate-level attributes to the top
         // These must not be in the `run` function we're generating
         if let Some(rest) = after(line, "#[macro_use") {
-            if let Some(crate_name) = word_after(rest, "extern crate ") {
-                deduced_externs.push(crate_name);
+            if let Some(ref crate_name) = word_after(rest, "extern crate ") {
+                deduced_externs.push(crate_name.clone());
             }
             prefix += line;
             prefix.push('\n');
         } else if line.starts_with("extern ") || line.starts_with("use ") {
             if let Some(crate_name) = word_after(line, "extern crate ") {
-                deduced_externs.push(crate_name);
+                deduced_externs.push(crate_name.clone());
             }
             if gt2015 {
                 if let Some(path) = word_after(line, "use ") {
@@ -133,5 +131,8 @@ fn main() {{
 "
     );
 
+    if verbose {
+        eprintln!("massaged_code={massaged_code}, deduced_externs={deduced_externs:?}")
+    }
     (massaged_code, deduced_externs)
 }

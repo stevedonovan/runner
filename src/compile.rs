@@ -159,7 +159,7 @@ pub fn program(
     args: &Args<'_>,
     verbose: bool,
     state: &State,
-    rust_file: &PathBuf,
+    rust_path: &PathBuf,
     externs: Vec<String>,
     exe_suffix: &str,
 ) -> ControlFlow<()> {
@@ -169,7 +169,7 @@ pub fn program(
         }
     } else {
         if verbose {
-            eprintln!("Building program ({program:?}) from source {rust_file:?}",);
+            eprintln!("Building program ({program:?}) from source {rust_path:?}",);
             let mode_stem = if state.build_static { "stat" } else { "dynam" };
             eprintln!("Compiling {mode_stem}ically");
         };
@@ -177,7 +177,7 @@ pub fn program(
             args,
             state,
             "",
-            rust_file,
+            rust_path,
             Some(program),
             externs,
             Vec::new(),
@@ -185,12 +185,12 @@ pub fn program(
             process::exit(1);
         }
         if verbose {
-            println!("Compiled {rust_file:?} successfully to {program:?}");
+            println!("Compiled {rust_path:?} successfully to {program:?}");
         }
     }
     if b("compile-only") {
         // copy and return
-        let file_name = rust_file.file_name().or_die("no file name?");
+        let file_name = rust_path.file_name().or_die("no file name?");
         let out_dir = args.get_path("output");
         let home = if out_dir == Path::new("cargo") {
             let home = crate_utils::cargo_home().join("bin");
@@ -218,12 +218,21 @@ pub fn program(
 pub(crate) fn check_well_formed(verbose: bool, quoted_src: &String) -> bool {
     // First do a rough check for essential prerequisite: fn main()
     let re = Regex::new(r"(?x)fn\ main()").unwrap(); // (?x) accounts for extra whitespace
-    if !re.is_match(quoted_src) {
-        if verbose {
-            eprintln!("source does not contain fn main(), no need to check further");
+
+    let matches = re.find_iter(quoted_src).count();
+
+    match matches {
+        0 => {
+            if verbose {
+                eprintln!("source does not contain fn main(), thus a snippet");
+            }
+            return false;
         }
-        return false;
-    }
+        1 => (),
+        _ => es::quit(
+            "Invalid source, contains {matches} occurrences of fn main(), at most 1 is allowed",
+        ),
+    };
 
     // Check if it's a valid program
     let source_code = quoted_src;
@@ -276,7 +285,7 @@ pub(crate) fn check_well_formed(verbose: bool, quoted_src: &String) -> bool {
                 indented_error.push_str(&format!("    {line}\n"));
             }
             eprintln!(
-                "snippet not well-formed: rustc check  failed with error:\n[{}]\n",
+                "snippet not well-formed: rustc check failed with error:\n[{}]\n",
                 indented_error.trim_end() // Remove trailing newline
             );
         }

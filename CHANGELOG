@@ -40,6 +40,13 @@
      Instrument as clearly as possible. Structuring of fn main(), prepare to have methods split out corresponding to the differebt
      stages of the build and run.
 
+     TODO: debug unwanted quotes around output lines from examples/x.
+     cat x | runner -n 'line.trim_start().split(" ").skip(1).fold(String::new(), |acc, x| (acc.to_owned() + " " + x).trim_start().to_owned())'
+     Read env args from more than first line, in case of shebang.
+     TODO: Check for multiple occurrences of fn main(), or if it has fn main() and doesn't compile, reject it.
+     TODO: Log issue with lapp crate for duplicate args.get_strings.
+     TODO: Potential clash between lifetime mark 'a and quote surrounding expression.
+
 ## 0.5.0 Release
 
 ### New Features

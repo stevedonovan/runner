@@ -10,7 +10,6 @@ use crate::cache::static_cache_dir;
 use crate::cargo_lock;
 use crate::strutil::next_2;
 
-use es::quit;
 use es::traits::{Die, ToVec};
 
 use semver::Version;
@@ -210,7 +209,7 @@ impl Meta {
             for name in maybe_names {
                 let mut entries = self.get_meta_entries(&name);
                 if entries.is_empty() {
-                    quit(&format!("no such crate {name}"));
+                    es::quit(&format!("no such crate {name}"));
                 }
                 entries.sort_by(|a, b| a.package.cmp(&b.package).then(a.version.cmp(&b.version)));
                 entries.dedup_by(|a, b| a.package.eq(&b.package) && (a.version.eq(&b.version)));

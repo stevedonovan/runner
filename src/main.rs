@@ -12,6 +12,7 @@ use lapp::Args;
 use std::collections::HashSet;
 use std::env::consts::EXE_SUFFIX;
 use std::fs;
+use std::io::Read;
 use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
 use std::process;
@@ -59,7 +60,7 @@ Compile and run small Rust snippets
   -I, --stdin Input from stdin
 
   Cache Management:
-  --add  (string...) add new crates to the cache
+  --add  (string...) add new crates to the static cache
   --update update all, or a specific package given as argument
   --edit  edit the static cache Cargo.toml
   --build rebuild the static cache
@@ -85,10 +86,14 @@ Compile and run small Rust snippets
   <args> (string...) arguments to pass to program
 ";
 
-/// Read source file and interpret any arguments prefixed by "//: ".
+/// Read first line of source file, skipping any shebang, and interpret any arguments prefixed by "//: ".
 fn read_file_with_arg_comment(args: &mut Args, file: &Path) -> (String, bool) {
     let contents = fs::read_to_string(file).or_die("cannot read file");
-    let first_line = contents.lines().next().or_die("empty file");
+    let lines = &mut contents.lines();
+    let mut first_line = lines.next().or_die("empty file");
+    if first_line.starts_with("#!") {
+        first_line = lines.next().or_die("premature end of file after shebang");
+    }
     let arg_comment = "//: ";
     let has_arg_comment = first_line.starts_with(arg_comment);
     if has_arg_comment {
@@ -107,6 +112,14 @@ fn read_file_with_arg_comment(args: &mut Args, file: &Path) -> (String, bool) {
         args.clear_used();
     }
     (contents, has_arg_comment)
+}
+
+pub struct PrettyError<T>(pub T);
+
+impl<T> From<T> for PrettyError<T> {
+    fn from(v: T) -> Self {
+        Self(v)
+    }
 }
 
 #[allow(clippy::case_sensitive_file_extension_comparisons)]
@@ -159,6 +172,7 @@ fn main() {
     // Decide how to process request
     let (static_state, maybe_prog_name) = decide(b, &args);
     let maybe_prog_path: Option<PathBuf> = maybe_prog_name.as_ref().map(PathBuf::from);
+    eprintln!("maybe_prog_path={maybe_prog_path:?}");
 
     let optimized = args.get_bool("optimize");
     let edition = args.get_string("edition");
@@ -201,12 +215,19 @@ fn main() {
 
     // ALL executables go into the Runner bin directory...
     let mut bin = cache::runner_directory().join("bin");
+    let mut src = bin.clone();
     let mut externs = Vec::new();
 
     // If code is a snippet, transform it into a Rust program.
     // 'Proper' (well-formed) Rust programs are accepted
     let (rust_file, program) = if well_formed {
-        finalize_program(&code, &mut externs, maybe_prog_path, &mut bin, exe_suffix)
+        finalize_program(
+            &code,
+            &mut externs,
+            maybe_prog_path.clone(),
+            &mut bin,
+            exe_suffix,
+        )
     } else {
         // otherwise we must create a proper program from the snippet
         // and write this as a file in the Runner bin directory...
@@ -226,8 +247,11 @@ fn main() {
     };
 
     // Compile program unless running precompiled
+    src.push(rust_file);
+    let rust_path = src.with_extension("rs");
+
     if let ControlFlow::Break(()) = compile::program(
-        b, &program, &args, verbose, &state, &rust_file, externs, exe_suffix,
+        b, &program, &args, verbose, &state, &rust_path, externs, exe_suffix,
     ) {
         return;
     }
@@ -239,10 +263,10 @@ fn main() {
     // Finally run the compiled program
     run(verbose, builder, &program_args, &program);
 
-    if verbose {
-        let dur = start.elapsed();
-        eprintln!("Completed in {}.{}s", dur.as_secs(), dur.subsec_millis());
-    }
+    // if verbose {
+    let dur = start.elapsed();
+    eprintln!("Completed in {}.{}s", dur.as_secs(), dur.subsec_millis());
+    // }
 }
 
 fn decide(b: impl Fn(&str) -> bool, args: &Args<'_>) -> (bool, Option<String>) {
@@ -252,11 +276,11 @@ fn decide(b: impl Fn(&str) -> bool, args: &Args<'_>) -> (bool, Option<String>) {
         eprintln!("Flag --{mode_req} will be ignored since program is precompiled");
     }
     let maybe_prog_name: Option<String> = if b("stdin") && !b("compile-only") {
-        eprintln!("1. program=stdin");
+        // eprintln!("1. program=stdin");
         Some("stdin".to_string())
     } else {
         let program = args.get_string("program");
-        eprintln!("2. program={program}");
+        // eprintln!("2. program={program}");
         Some(program.clone())
     };
     (static_state, maybe_prog_name)
@@ -366,6 +390,8 @@ fn snippet_to_program(
     exe_suffix: &str,
 ) -> (PathBuf, PathBuf) {
     let mut extern_crates = args.get_strings("extern");
+    eprintln!("0. extern_crates from args.get_strings(\"extern\")={extern_crates:?}");
+    extern_crates.dedup(); // Sometimes seems to happen with lapp.
     let wild_crates = args.get_strings("wild");
     let macro_crates = args.get_strings("macro");
     if !wild_crates.is_empty() {
@@ -378,17 +404,9 @@ fn snippet_to_program(
 
     let mut prepend = args.get_string("prepend");
     if !prepend.is_empty() {
-        // eprintln!(
-        //     "1. before: extra={extra:?}, extra.as_bytes()={:?}",
-        //     extra.as_bytes()
-        // );
         prepend = prepend.replace("\\n", "\n"); // Issue #5: undo escaping to restore what the user entered
         prepend.push(';');
         prepend.push('\n'); // Issue #5 Add a line feed to separate extra section from body
-                            // eprintln!(
-                            //     "2. after: extra={extra}, extra.as_bytes()={:?}",
-                            //     extra.as_bytes()
-                            // );
     }
     let maybe_prelude = if bool_var("no-prelude", args) {
         String::new()
@@ -406,6 +424,7 @@ fn snippet_to_program(
         edition > "2015",
         bool_var("verbose", args),
     );
+    eprintln!("1. deduced_externs = {deduced_externs:?}");
     code = massaged_code;
     *externs = deduced_externs;
     if !source_file && !has_save_name {
@@ -464,19 +483,14 @@ fn prepare_rust_code(
     program_contents: Option<String>,
 ) -> (Vec<String>, bool, bool, String) {
     let program_args = args.get_strings("args");
+
     let mut source_file = false;
     let (has_save_name, raw_code) = if b("stdin") {
         let mut s = String::new();
-
-        // Read lines from stdin in a loop until EOF is reached
-        loop {
-            let bytes_read = io::stdin()
-                .read_line(&mut s)
-                .or_die("could not read from stdin");
-            if bytes_read == 0 {
-                break; // EOF reached
-            }
-        }
+        io::stdin()
+            .lock()
+            .read_to_string(&mut s)
+            .or_die("could not read from stdin");
 
         // println!("Content from stdin:\n{}", s);
 

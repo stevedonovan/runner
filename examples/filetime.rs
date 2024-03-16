@@ -1,5 +1,6 @@
 //: -s
 // filetime.rs
+use std::fs;    // Demo uses 'runner -s --no-prelude filetime.rs' to show how to suppress this
 use filetime::FileTime;
 
 let metadata = fs::metadata("filetime.rs").unwrap();
