@@ -12,8 +12,8 @@ use crate::meta;
 
 use crate_utils::is_unstable_toolchain;
 
-use crate::fatal::{self, OrDie};
 use crate::state::State;
+use anyhow::{bail, Context, Result};
 
 const STATIC_CACHE: &str = "static-cache";
 const DYNAMIC_CACHE: &str = "dy-cache";
@@ -59,23 +59,23 @@ pub fn quote(s: String) -> String {
     }
 }
 
-pub fn runner_directory() -> PathBuf {
-    let mut runner = crate_utils::cargo_home().join(".runner");
-    if is_unstable_toolchain() {
+pub fn runner_directory() -> Result<PathBuf> {
+    let mut runner = crate_utils::cargo_home()?.join(".runner");
+    if is_unstable_toolchain()? {
         runner.push("unstable");
     }
-    runner
+    Ok(runner)
 }
 
-pub fn cargo(args: &[&str]) -> bool {
+pub fn cargo(args: &[&str]) -> Result<bool> {
     let res = process::Command::new("cargo")
         .args(args)
         .status()
-        .or_die("can't run cargo");
-    res.success()
+        .context("can't run cargo")?;
+    Ok(res.success())
 }
 
-pub fn cargo_build(release: bool) -> Option<String> {
+pub fn cargo_build(release: bool) -> Result<Option<String>> {
     use process::Stdio;
     use std::io::prelude::*;
     use std::io::BufReader;
@@ -88,7 +88,7 @@ pub fn cargo_build(release: bool) -> Option<String> {
     c.stdout(Stdio::piped());
     c.arg("--message-format").arg("json");
 
-    let mut res = c.spawn().or_die("can't run cargo");
+    let mut res = c.spawn().context("can't run cargo")?;
 
     // collect all JSON records, and let the rest
     // pass through...
@@ -105,53 +105,53 @@ pub fn cargo_build(release: bool) -> Option<String> {
         }
     }
 
-    if res.wait().or_die("cargo build error").success() {
-        Some(out)
+    if res.wait().context("cargo build error")?.success() {
+        Ok(Some(out))
     } else {
-        None
+        Ok(None)
     }
 }
 
-pub fn static_cache_dir() -> PathBuf {
-    runner_directory().join(STATIC_CACHE)
+pub fn static_cache_dir() -> Result<PathBuf> {
+    Ok(runner_directory()?.join(STATIC_CACHE))
 }
 
-pub fn get_metadata() -> meta::Meta {
-    let static_cache = static_cache_dir();
+pub fn get_metadata() -> Result<meta::Meta> {
+    let static_cache = static_cache_dir()?;
     if meta::Meta::exists(&static_cache) {
         meta::Meta::new_from_file(&static_cache)
     } else {
-        fatal::quit("please build the static cache with `runner --add <crate>...` first");
+        bail!("please build the static cache with `runner --add <crate>...` first");
     }
 }
 
-pub fn static_cache_dir_check() -> PathBuf {
-    let static_cache = static_cache_dir();
+pub fn static_cache_dir_check() -> Result<PathBuf> {
+    let static_cache = static_cache_dir()?;
     if !static_cache.exists() {
-        fatal::quit("please build the static cache with `runner --add <crate>...` first");
+        bail!("please build the static cache with `runner --add <crate>...` first");
     }
-    static_cache
+    Ok(static_cache)
 }
 
-pub fn build_static_cache() -> bool {
+pub fn build_static_cache() -> Result<bool> {
     use crate::meta::*;
     let mut m = Meta::new();
-    match cargo_build(false) {
-        None => return false,
+    match cargo_build(false)? {
+        None => return Ok(false),
         Some(s) => m.debug(s),
-    }
-    match cargo_build(true) {
-        None => return false,
+    }?;
+    match cargo_build(true)? {
+        None => return Ok(false),
         Some(s) => m.release(s),
-    }
-    m.update(&static_cache_dir());
+    }?;
+    m.update(&static_cache_dir()?)?;
     cargo(&["doc"])
 }
 
-pub fn create_static_cache(crates: &[String]) {
+pub fn create_static_cache(crates: &[String]) -> Result<()> {
     use std::io::prelude::*;
 
-    let static_cache = static_cache_dir();
+    let static_cache = static_cache_dir()?;
     let exists = static_cache.exists();
 
     let crates = if crates.len() == 1 && crates[0] == "kitchen-sink" {
@@ -160,16 +160,16 @@ pub fn create_static_cache(crates: &[String]) {
         crates.to_vec()
     };
 
-    let mut home = runner_directory();
-    env::set_current_dir(&home).or_die("cannot change to home directory");
+    let mut home = runner_directory()?;
+    env::set_current_dir(&home).context("cannot change to home directory")?;
 
     let mdata = if !exists {
-        if !cargo(&["new", "--bin", STATIC_CACHE]) {
-            fatal::quit("cannot create static cache");
+        if !cargo(&["new", "--bin", STATIC_CACHE])? {
+            bail!("cannot create static cache");
         }
         None
     } else {
-        Some(get_metadata())
+        Some(get_metadata()?)
     };
     let check_crate = |s: &str| {
         if let Some(m) = &mdata {
@@ -183,98 +183,94 @@ pub fn create_static_cache(crates: &[String]) {
     // a plain crate name - we assume latest version ('*')
     // a name=vs - we'll ensure it gets quoted properly
     // a local Cargo project
-    let crates_vs = crates
-        .iter()
-        .filter_map(|c| {
-            if let Some(idx) = c.find('=') {
-                // help with a little bit of quoting...
-                let (name, vs) = (&c[0..idx], &c[(idx + 1)..]);
-                Some((name.to_string(), vs.to_string(), true))
-            } else {
-                // explicit name but no version, see if we already have this crate
-                if let Some((name, path)) = maybe_cargo_dir(&c) {
-                    // hello - this is a local Cargo project!
-                    if check_crate(&name) {
-                        None
-                    } else {
-                        Some((name, path.to_str().unwrap().to_string(), false))
-                    }
-                } else {
-                    // latest version of crate
-                    if check_crate(c) {
-                        None
-                    } else {
-                        Some((c.to_string(), '*'.to_string(), true))
-                    }
-                }
+    let mut crates_vs = Vec::new();
+    for c in &crates {
+        if let Some(idx) = c.find('=') {
+            // help with a little bit of quoting...
+            let (name, vs) = (&c[0..idx], &c[(idx + 1)..]);
+            crates_vs.push((name.to_string(), vs.to_string(), true));
+        } else if let Some((name, path)) = maybe_cargo_dir(&c)? {
+            // hello - this is a local Cargo project!
+            if !check_crate(&name) {
+                crates_vs.push((
+                    name,
+                    path.to_str()
+                        .context("local Cargo path was not valid Unicode")?
+                        .to_string(),
+                    false,
+                ));
             }
-        })
-        .collect::<Vec<_>>();
+        } else if !check_crate(c) {
+            // latest version of crate
+            crates_vs.push((c.to_string(), '*'.to_string(), true));
+        }
+    }
 
     if crates_vs.len() == 0 {
-        return;
+        return Ok(());
     }
 
     home.push(STATIC_CACHE);
-    env::set_current_dir(&home).or_die("could not change to static cache directory");
+    env::set_current_dir(&home).context("could not change to static cache directory")?;
     let tmpfile = env::temp_dir().join("Cargo.toml");
-    fs::copy("Cargo.toml", &tmpfile).or_die("cannot back up Cargo.toml");
+    fs::copy("Cargo.toml", &tmpfile).context("cannot back up Cargo.toml")?;
     {
         let mut deps = fs::OpenOptions::new()
             .append(true)
             .open("Cargo.toml")
-            .or_die("could not append to Cargo.toml");
+            .context("could not append to Cargo.toml")?;
         for (name, vs, semver) in crates_vs {
             if semver {
                 write!(deps, "{}=\"{}\"\n", name, vs)
             } else {
                 write!(deps, "{}={{path=\"{}\"}}\n", name, vs)
             }
-            .or_die("could not modify Cargo.toml");
+            .context("could not modify Cargo.toml")?;
         }
     }
-    if !build_static_cache() {
+    if !build_static_cache()? {
         println!("Error occurred - restoring Cargo.toml");
-        fs::copy(&tmpfile, "Cargo.toml").or_die("cannot restore Cargo.toml");
+        fs::copy(&tmpfile, "Cargo.toml").context("cannot restore Cargo.toml")?;
     }
+    Ok(())
 }
 
-fn maybe_cargo_dir(name: &str) -> Option<(String, PathBuf)> {
+fn maybe_cargo_dir(name: &str) -> Result<Option<(String, PathBuf)>> {
     let path = Path::new(name);
     if !path.exists() || !path.is_dir() {
-        return None;
+        return Ok(None);
     }
-    let full_path = path.canonicalize().or_die("bad path, man!");
+    let full_path = path.canonicalize().context("bad path")?;
     if let Ok((full_path, cargo_toml)) = crate_utils::cargo_dir(&full_path) {
-        let name = crate_utils::crate_info(&cargo_toml).name;
-        Some((name, full_path))
+        let name = crate_utils::crate_info(&cargo_toml)?.name;
+        Ok(Some((name, full_path)))
     } else {
-        None
+        Ok(None)
     }
 }
 
 // this is always called first and has the important role to ensure that
 // runner's directory structure is created properly.
-pub fn get_prelude() -> String {
-    let home = runner_directory();
+pub fn get_prelude() -> Result<String> {
+    let home = runner_directory()?;
     let pristine = !home.is_dir();
     if pristine {
-        fs::create_dir_all(&home).or_die("cannot create runner directory");
+        fs::create_dir_all(&home).context("cannot create runner directory")?;
     }
     let prelude = home.join("prelude");
     let bin = home.join("bin");
     if pristine {
-        fs::write(&prelude, PRELUDE).or_die("cannot write prelude");
-        fs::create_dir(&home.join(DYNAMIC_CACHE)).or_die("cannot create dynamic cache");
+        fs::write(&prelude, PRELUDE).context("cannot write prelude")?;
+        fs::create_dir(&home.join(DYNAMIC_CACHE)).context("cannot create dynamic cache")?;
     }
     if pristine || !bin.is_dir() {
-        fs::create_dir(&bin).or_die("cannot create output directory");
+        fs::create_dir(&bin).context("cannot create output directory")?;
     }
-    fs::read_to_string(&prelude).or_die("cannot read prelude")
+    fs::read_to_string(&prelude).context("cannot read prelude")
 }
 
-pub fn get_cache(state: &State) -> PathBuf {
-    let mut home = runner_directory();
+pub fn get_cache(state: &State) -> Result<PathBuf> {
+    let mut home = runner_directory()?;
     if state.build_static {
         home.push(STATIC_CACHE);
         home.push("target");
@@ -283,37 +279,38 @@ pub fn get_cache(state: &State) -> PathBuf {
     } else {
         home.push(DYNAMIC_CACHE);
     };
-    home
+    Ok(home)
 }
 
-pub fn add_aliases(aliases: Vec<String>) {
+pub fn add_aliases(aliases: Vec<String>) -> Result<()> {
     if aliases.len() == 0 {
-        return;
+        return Ok(());
     }
-    let alias_file = runner_directory().join("alias");
+    let alias_file = runner_directory()?.join("alias");
     let mut f = if alias_file.is_file() {
         fs::OpenOptions::new().append(true).open(&alias_file)
     } else {
         fs::File::create(&alias_file)
     }
-    .or_die("cannot open runner alias file");
+    .context("cannot open runner alias file")?;
 
     for crate_alias in aliases {
-        write!(f, "{}\n", crate_alias).or_die("cannot write to runner alias file");
+        write!(f, "{}\n", crate_alias).context("cannot write to runner alias file")?;
     }
+    Ok(())
 }
 
-pub fn get_aliases() -> HashMap<String, String> {
-    let alias_file = runner_directory().join("alias");
+pub fn get_aliases() -> Result<HashMap<String, String>> {
+    let alias_file = runner_directory()?.join("alias");
     if !alias_file.is_file() {
-        return HashMap::new();
+        return Ok(HashMap::new());
     }
-    let contents = fs::read_to_string(&alias_file).or_die("cannot read alias file");
-    contents
+    let contents = fs::read_to_string(&alias_file).context("cannot read alias file")?;
+    Ok(contents
         .lines()
         .filter_map(|line| {
             let (key, value) = line.split_once('=')?;
             Some((key.trim().to_string(), value.trim().to_string()))
         })
-        .collect()
+        .collect())
 }

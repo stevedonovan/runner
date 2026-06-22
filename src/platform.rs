@@ -1,17 +1,18 @@
 // takes basic functionality from open crate
 // and fills in the important _edit_ case, respecting POSIX
 // and some Windows/MacOS limitations.
-use crate::fatal::OrDie;
+use anyhow::{Context, Result};
 use std::env;
 use std::path::Path;
 use std::process::Command;
 extern crate open;
 
-pub fn open(p: &Path) {
-    open::that(p).or_die("cannot open");
+pub fn open(p: &Path) -> Result<()> {
+    open::that(p).context("cannot open")?;
+    Ok(())
 }
 
-pub fn edit(p: &Path) {
+pub fn edit(p: &Path) -> Result<()> {
     // Respect POSIX
     let editor = if let Ok(ed) = env::var("VISUAL") {
         ed
@@ -29,11 +30,12 @@ pub fn edit(p: &Path) {
         "open".into()
     };
     if editor == "open" {
-        open(p);
+        open(p)?;
     } else {
         Command::new(&editor)
             .arg(&p)
             .status()
-            .or_die(&format!("Cannot find editor {:?}: ", p));
+            .with_context(|| format!("Cannot find editor {:?}: ", p))?;
     }
+    Ok(())
 }

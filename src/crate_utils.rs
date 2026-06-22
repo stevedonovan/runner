@@ -1,4 +1,4 @@
-use crate::fatal::OrDie;
+use anyhow::{bail, Context, Result};
 use dirs;
 use std::env;
 use std::fs;
@@ -8,24 +8,28 @@ use toml;
 
 static RUSTUP_LIB_VALUE: OnceLock<String> = OnceLock::new();
 
-pub fn rustup_lib() -> &'static str {
-    RUSTUP_LIB_VALUE.get_or_init(|| {
+pub fn rustup_lib() -> Result<&'static str> {
+    if RUSTUP_LIB_VALUE.get().is_none() {
         let output = std::process::Command::new("rustc")
             .args(&["--print", "target-libdir"])
             .output()
-            .or_die("cannot query rustc target libdir");
+            .context("cannot query rustc target libdir")?;
         if !output.status.success() {
-            crate::fatal::quit("rustc --print target-libdir failed");
+            bail!("rustc --print target-libdir failed");
         }
-        String::from_utf8(output.stdout)
-            .or_die("rustc target libdir was not valid UTF-8")
+        let value = String::from_utf8(output.stdout)
+            .context("rustc target libdir was not valid UTF-8")?
             .trim()
-            .to_string()
-    })
+            .to_string();
+        let _ = RUSTUP_LIB_VALUE.set(value);
+    }
+    Ok(RUSTUP_LIB_VALUE
+        .get()
+        .expect("rustup lib path should be initialized"))
 }
 
-pub fn is_unstable_toolchain() -> bool {
-    rustup_lib().contains("nightly")
+pub fn is_unstable_toolchain() -> Result<bool> {
+    Ok(rustup_lib()?.contains("nightly"))
 }
 
 pub fn proper_crate_name(crate_name: &str) -> String {
@@ -47,12 +51,12 @@ pub fn path_file_name(p: &Path) -> String {
     }
 }
 
-pub fn cargo_home() -> PathBuf {
+pub fn cargo_home() -> Result<PathBuf> {
     if let Ok(home) = env::var("CARGO_HOME") {
         // set in cargo runs
-        home.into()
+        Ok(home.into())
     } else {
-        dirs::home_dir().or_die("no home!").join(".cargo")
+        Ok(dirs::home_dir().context("no home!")?.join(".cargo"))
     }
 }
 
@@ -75,11 +79,11 @@ pub struct CrateInfo {
 }
 
 // we want the ACTUAL crate name, not the directory/repo name
-pub fn crate_info(cargo_toml: &Path) -> CrateInfo {
-    let body = fs::read_to_string(cargo_toml).or_die("cannot read Cargo.toml");
+pub fn crate_info(cargo_toml: &Path) -> Result<CrateInfo> {
+    let body = fs::read_to_string(cargo_toml).context("cannot read Cargo.toml")?;
     let toml = body
         .parse::<toml::Value>()
-        .or_die("cannot parse Cargo.toml");
+        .context("cannot parse Cargo.toml")?;
     let package = toml.as_table().unwrap().get("package").unwrap();
     let name = package.get("name").unwrap().as_str().unwrap().to_string();
     let edition = match package.get("edition") {
@@ -87,5 +91,5 @@ pub fn crate_info(cargo_toml: &Path) -> CrateInfo {
         Some(e) => e.as_str().unwrap(),
     }
     .to_string();
-    CrateInfo { name, edition }
+    Ok(CrateInfo { name, edition })
 }

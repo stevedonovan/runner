@@ -2,6 +2,7 @@
 // caching the results. Can get the exact name of the .rlib
 // for the latest available version in the static cache.
 extern crate json;
+use anyhow::{bail, Context, Result};
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -9,7 +10,6 @@ use std::path::{Path, PathBuf};
 use super::crate_utils::proper_crate_name;
 use crate::cache::static_cache_dir;
 use crate::cargo_lock;
-use crate::fatal::{self, OrDie};
 
 use semver::Version;
 
@@ -17,7 +17,7 @@ fn as_str(v: &json::JsonValue) -> &str {
     v.as_str().unwrap()
 }
 
-fn read_entry(line: &str) -> Option<(String, String, Version, String, String, String)> {
+fn read_entry(line: &str) -> Result<Option<(String, String, Version, String, String, String)>> {
     use crate::strutil::next_2;
 
     if let Ok(doc) = json::parse(line) {
@@ -28,7 +28,7 @@ fn read_entry(line: &str) -> Option<(String, String, Version, String, String, St
             .join(" ");
         let filenames = &doc["filenames"][0];
         if !filenames.is_string() {
-            return None;
+            return Ok(None);
         }
         let path = Path::new(as_str(filenames));
 
@@ -46,22 +46,22 @@ fn read_entry(line: &str) -> Option<(String, String, Version, String, String, St
             // get the cached source path
             let path = Path::new(as_str(&doc["target"]["src_path"]));
 
-            let vs = Version::parse(vs).or_die("bad semver");
-            let filename = filename.to_str().or_die("filename not valid Unicode");
-            let src_path = path.to_str().or_die("cached path not valid Unicode");
-            Some((
+            let vs = Version::parse(vs).context("bad semver")?;
+            let filename = filename.to_str().context("filename not valid Unicode")?;
+            let src_path = path.to_str().context("cached path not valid Unicode")?;
+            Ok(Some((
                 package.into(),
                 name.into(),
                 vs,
                 features,
                 filename.into(),
                 src_path.into(),
-            ))
+            )))
         } else {
-            None
+            Ok(None)
         }
     } else {
-        None
+        Ok(None)
     }
 }
 
@@ -95,27 +95,27 @@ impl Meta {
         file_name(cache).exists()
     }
 
-    pub fn new_from_file(cache: &Path) -> Meta {
+    pub fn new_from_file(cache: &Path) -> Result<Meta> {
         fn opt_field(fields: &[&str], idx: usize) -> String {
             if idx >= fields.len() { "" } else { fields[idx] }.into()
         }
 
         let mut v = Vec::new();
         let meta_f = file_name(cache);
-        let contents = fs::read_to_string(&meta_f).or_die("cannot read metafile");
+        let contents = fs::read_to_string(&meta_f).context("cannot read metafile")?;
         for line in contents.lines() {
             let parts = line.split(',').collect::<Vec<_>>();
             v.push(MetaEntry {
                 package: parts[0].into(),
                 crate_name: parts[1].into(),
-                version: Version::parse(parts[2]).unwrap(),
+                version: Version::parse(parts[2]).context("bad semver in metafile")?,
                 features: parts[3].into(),
                 debug_name: parts[4].into(),
                 release_name: parts[5].into(),
                 path: PathBuf::from(opt_field(&parts, 6)),
             });
         }
-        Meta { entries: v }
+        Ok(Meta { entries: v })
     }
     pub fn get_meta_entries<'a>(&'a self, name: &str) -> Vec<&'a MetaEntry> {
         self.entries
@@ -151,10 +151,10 @@ impl Meta {
         entries.len() > 0
     }
 
-    pub fn dump_crates(&mut self, maybe_names: Vec<String>, verbose: bool) {
+    pub fn dump_crates(&mut self, maybe_names: Vec<String>, verbose: bool) -> Result<()> {
         if maybe_names.len() > 0 {
             let packages = if verbose {
-                Some(cargo_lock::read_cargo_lock(&static_cache_dir()).package)
+                Some(cargo_lock::read_cargo_lock(&static_cache_dir()?)?.package)
             } else {
                 None
             };
@@ -165,11 +165,11 @@ impl Meta {
                         println!("{} = \"{}\"", e.package, e.version);
                         if let Some(ref packages) = packages {
                             let version = e.version.to_string();
-                            print_dependencies(&e.package, &version, &packages, 1);
+                            print_dependencies(&e.package, &version, &packages, 1)?;
                         }
                     }
                 } else {
-                    fatal::quit(&format!("no such crate {:?}", name));
+                    bail!("no such crate {:?}", name);
                 }
             }
         } else {
@@ -178,15 +178,16 @@ impl Meta {
                 println!("{} = \"{}\"", e.package, e.version);
             }
         }
+        Ok(())
     }
 
     // constructing from output of 'cargo build'
 
-    pub fn debug(&mut self, txt: String) {
+    pub fn debug(&mut self, txt: String) -> Result<()> {
         for line in txt.lines() {
             // note that features is in form '"foo","bar"' which we
             // store as 'foo bar'
-            if let Some((package, crate_name, vs, features, filename, path)) = read_entry(line) {
+            if let Some((package, crate_name, vs, features, filename, path)) = read_entry(line)? {
                 let crate_name = proper_crate_name(&crate_name);
                 self.entries.push(MetaEntry {
                     package: package,
@@ -199,11 +200,12 @@ impl Meta {
                 });
             }
         }
+        Ok(())
     }
 
-    pub fn release(&mut self, txt: String) {
+    pub fn release(&mut self, txt: String) -> Result<()> {
         for line in txt.lines() {
-            if let Some((name, _, vs, _, filename, _)) = read_entry(line) {
+            if let Some((name, _, vs, _, filename, _)) = read_entry(line)? {
                 if let Some(entry) = self
                     .entries
                     .iter_mut()
@@ -215,11 +217,12 @@ impl Meta {
                 }
             }
         }
+        Ok(())
     }
 
-    pub fn update(self, cache: &Path) {
+    pub fn update(self, cache: &Path) -> Result<()> {
         let meta_f = file_name(cache);
-        let mut f = File::create(&meta_f).or_die("cannot create cargo.meta");
+        let mut f = File::create(&meta_f).context("cannot create cargo.meta")?;
         for e in self.entries {
             write!(
                 f,
@@ -232,16 +235,22 @@ impl Meta {
                 e.release_name,
                 e.path.display()
             )
-            .or_die("i/o?");
+            .context("i/o?")?;
         }
+        Ok(())
     }
 }
 
-fn print_dependencies(package: &str, version: &str, packages: &[cargo_lock::Package], indent: u32) {
+fn print_dependencies(
+    package: &str,
+    version: &str,
+    packages: &[cargo_lock::Package],
+    indent: u32,
+) -> Result<()> {
     let p = packages
         .iter()
         .find(|p| p.name == package && p.version == version)
-        .or_die("cannot find package in static cache Cargo.lock");
+        .context("cannot find package in static cache Cargo.lock")?;
     let indents = (0..indent).map(|_| '\t').collect::<String>();
     if let Some(ref deps) = p.dependencies {
         for d in deps.iter() {
@@ -249,7 +258,8 @@ fn print_dependencies(package: &str, version: &str, packages: &[cargo_lock::Pack
             let pname = iter.next().unwrap();
             let version = iter.next().unwrap();
             println!("{}{} = \"{}\"", indents, pname, version);
-            print_dependencies(pname, version, packages, indent + 1);
+            print_dependencies(pname, version, packages, indent + 1)?;
         }
     }
+    Ok(())
 }

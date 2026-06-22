@@ -1,7 +1,7 @@
 use crate::cache;
 use crate::crate_utils;
-use crate::fatal::{OrDie, OrThenDie};
 use crate::state::State;
+use anyhow::{anyhow, Context, Result};
 use lapp;
 
 use std::collections::HashSet;
@@ -36,7 +36,7 @@ pub fn compile_crate(
     output_program: Option<&Path>,
     mut extern_crates: Vec<String>,
     features: Vec<String>,
-) -> bool {
+) -> Result<bool> {
     let verbose = args.get_bool("verbose");
     let simplify = !args.get_bool("no-simplify");
     let debug = !state.optimize;
@@ -58,7 +58,7 @@ pub fn compile_crate(
     } {
         cfg.push(format!("feature=\"{}\"", f));
     }
-    let cache = cache::get_cache(&state);
+    let cache = cache::get_cache(&state)?;
     let mut builder = process::Command::new("rustc");
     if state.edition != "2015" {
         builder.args(&["--edition", &state.edition]);
@@ -104,18 +104,18 @@ pub fn compile_crate(
     // So we look for the latest crate of this name
 
     let extern_crates: Vec<(String, String)> = if state.build_static && extern_crates.len() > 0 {
-        let m = cache::get_metadata();
+        let m = cache::get_metadata()?;
         extern_crates
             .into_iter()
             .map(|c| {
-                (
-                    m.get_full_crate_name(&c, debug).or_then_die(|_| {
-                        format!("no such crate '{}' in static cache: use --add", c)
-                    }),
+                Ok((
+                    m.get_full_crate_name(&c, debug).ok_or_else(|| {
+                        anyhow!("no such crate '{}' in static cache: use --add", c)
+                    })?,
                     c,
-                )
+                ))
             })
-            .collect()
+            .collect::<Result<Vec<_>>>()?
     } else {
         extern_crates
             .into_iter()
@@ -136,15 +136,15 @@ pub fn compile_crate(
         if std::io::stderr().is_terminal() {
             builder.args(&["--color", "always"]);
         }
-        let output = builder.output().or_die("can't run rustc");
+        let output = builder.output().context("can't run rustc")?;
         let status = output.status.success();
         if !status {
             let err = String::from_utf8_lossy(&output.stderr);
             eprintln!("{}", simplify_qualified_names(&err));
         }
-        status
+        Ok(status)
     } else {
-        builder.status().or_die("can't run rustc").success()
+        Ok(builder.status().context("can't run rustc")?.success())
     }
 }
 
@@ -156,7 +156,7 @@ pub fn massage_snippet(
     macro_crates: HashSet<String>,
     body_prelude: String,
     is2018: bool,
-) -> (String, Vec<String>) {
+) -> Result<(String, Vec<String>)> {
     use crate::strutil::{after, split, word_after};
 
     fn indent_line(line: &str) -> String {
@@ -170,7 +170,7 @@ pub fn massage_snippet(
 
     body += &body_prelude;
     if extern_crates.len() > 0 {
-        let aliases = cache::get_aliases();
+        let aliases = cache::get_aliases()?;
         for c in &extern_crates {
             prefix += &if let Some(aliased) = aliases.get(c) {
                 format!("extern crate {} as {};\n", aliased, c)
@@ -253,5 +253,5 @@ fn main() {{
         crate_begin, prefix, body
     );
 
-    (massaged_code, deduced_externs)
+    Ok((massaged_code, deduced_externs))
 }
