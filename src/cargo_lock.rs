@@ -1,18 +1,17 @@
-use toml;
+use crate::fatal::OrDie;
 use std::fs;
-use es::traits::*;
 use std::path::Path;
+use toml;
 
-#[derive(Deserialize)]
+#[derive(serde::Deserialize)]
 pub struct CargoLock {
-    pub package: Vec<Package>
+    pub package: Vec<Package>,
 }
 
-#[derive(Deserialize)]
+#[derive(serde::Deserialize)]
 pub struct Package {
     pub name: String,
     pub version: String,
-    pub source: Option<String>,
     pub dependencies: Option<Vec<String>>,
 }
 

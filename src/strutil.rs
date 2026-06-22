@@ -34,4 +34,3 @@ pub fn split(txt: &str, delim: char) -> (&str,&str) {
         (txt,"")
     }
 }
-

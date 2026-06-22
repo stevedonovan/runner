@@ -1,33 +1,32 @@
 //! A Rust snippet runner.
 //!
 //! Please see [readme](https://github.com/stevedonovan/runner/blob/master/readme.md)
-extern crate easy_shortcuts as es;
-#[macro_use] extern crate lazy_static;
-#[macro_use] extern crate serde_derive;
 use lapp;
 use shlex;
 
-use es::traits::*;
-use std::process;
+use std::collections::HashSet;
 use std::env;
-use std::fs;
-use std::path::{Path,PathBuf};
-use std::collections::{HashSet};
 use std::env::consts::EXE_SUFFIX;
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::process;
 
-mod crate_utils;
-mod platform;
-mod strutil;
-mod meta;
-mod cargo_lock;
 mod cache;
-mod state;
+mod cargo_lock;
 mod compile;
+mod crate_utils;
+mod fatal;
+mod meta;
+mod platform;
+mod state;
+mod strutil;
 
-use platform::{open,edit};
-use crate_utils::RUSTUP_LIB;
+use compile::{compile_crate, massage_snippet};
+use crate_utils::rustup_lib;
+use fatal::OrDie;
+use fatal::OrThenDie;
+use platform::{edit, open};
 use state::State;
-use compile::{compile_crate,massage_snippet};
 
 const VERSION: &str = "0.4.0";
 
@@ -77,7 +76,7 @@ Compile and run small Rust snippets
   <args> (string...) arguments to pass to program
 ";
 
-fn read_file_with_arg_comment(args: &mut lapp::Args, file: &Path) -> (String,bool) {
+fn read_file_with_arg_comment(args: &mut lapp::Args, file: &Path) -> (String, bool) {
     let contents = fs::read_to_string(file).or_die("cannot read file");
     let first_line = contents.lines().next().or_die("empty file");
     let arg_comment = "//: ";
@@ -85,11 +84,11 @@ fn read_file_with_arg_comment(args: &mut lapp::Args, file: &Path) -> (String,boo
     if has_arg_comment {
         let default_args = &first_line[arg_comment.len()..];
         let default_args = shlex::split(default_args).or_die("bad comment args");
-        args.parse_command_line(default_args).or_die("cannot parse comment args");
+        args.parse_command_line(default_args)
+            .or_die("cannot parse comment args");
         args.clear_used();
     }
-    (contents,has_arg_comment)
-
+    (contents, has_arg_comment)
 }
 
 fn main() {
@@ -97,22 +96,22 @@ fn main() {
     args.parse_spec().or_die("bad spec");
     let env = Path::new("env.rs");
     let env_prelude = if env.exists() {
-        let (contents,_) = read_file_with_arg_comment(&mut args, env);
+        let (contents, _) = read_file_with_arg_comment(&mut args, env);
         Some(contents)
     } else {
         None
     };
 
-    args.parse_env_args().or_die("bad command line"); 
+    args.parse_env_args().or_die("bad command line");
 
     let program_contents = if let Ok(program) = args.get_string_result("program") {
         let prog = Path::new(&program);
         if program.ends_with(".rs") {
-            if ! prog.is_file() {
+            if !prog.is_file() {
                 args.quit("file does not exist");
             }
             args.clear_used();
-            let (contents,has_arg_comment) = read_file_with_arg_comment(&mut args, prog);
+            let (contents, has_arg_comment) = read_file_with_arg_comment(&mut args, prog);
             if has_arg_comment {
                 args.parse_env_args().or_die("bad command line");
             }
@@ -137,7 +136,7 @@ fn main() {
     };
 
     if b("version") {
-        println!("runner {}",VERSION);
+        println!("runner {}", VERSION);
         return;
     }
     let verbose = b("verbose");
@@ -168,8 +167,14 @@ fn main() {
     }
 
     // operations on the static cache
-    let (edit_toml, build, doc, update, cleanup, crates) =
-        (b("edit"), b("build"), b("doc"), b("update"), b("cleanup"), b("crates"));
+    let (edit_toml, build, doc, update, cleanup, crates) = (
+        b("edit"),
+        b("build"),
+        b("doc"),
+        b("update"),
+        b("cleanup"),
+        b("crates"),
+    );
 
     if edit_toml || build || doc || update || cleanup || crates {
         let maybe_argument = args.get_string_result("program");
@@ -180,28 +185,23 @@ fn main() {
                 cache::build_static_cache();
             } else {
                 if let Ok(package) = maybe_argument {
-                    cache::cargo(&["update","--package",&package]);
+                    cache::cargo(&["update", "--package", &package]);
                 } else {
                     cache::cargo(&["update"]);
                 }
                 return;
             }
-        } else
-        if doc {
-            let the_crate = crate_utils::proper_crate_name(
-                &if let Ok(file) =  maybe_argument {
-                    file
-                } else {
-                    "static_cache".to_string()
-                }
-            );
-            let docs = static_cache.join(&format!("target/doc/{}/index.html",the_crate));
+        } else if doc {
+            let the_crate = crate_utils::proper_crate_name(&if let Ok(file) = maybe_argument {
+                file
+            } else {
+                "static_cache".to_string()
+            });
+            let docs = static_cache.join(&format!("target/doc/{}/index.html", the_crate));
             open(&docs);
-        } else
-        if cleanup {
+        } else if cleanup {
             cache::cargo(&["clean"]);
-        } else
-        if crates {
+        } else if crates {
             let mut m = cache::get_metadata();
             let mut crates = Vec::new();
             if let Some(name) = maybe_argument.ok() {
@@ -209,7 +209,8 @@ fn main() {
                 crates.extend(args.get_strings("args"));
             }
             m.dump_crates(crates, verbose);
-        } else { // must be edit_toml
+        } else {
+            // must be edit_toml
             let toml = static_cache.join("Cargo.toml");
             edit(&toml);
         }
@@ -222,7 +223,7 @@ fn main() {
     let edition = args.get_string("edition");
 
     // Dynamically linking crates (experimental!)
-    let (print_path, compile) = (b("crate-path"),b("compile"));
+    let (print_path, compile) = (b("crate-path"), b("compile"));
     if print_path || compile {
         let mut state = State::dll(optimized, &edition);
         // plain-jane name is a crate name!
@@ -237,7 +238,7 @@ fn main() {
                 // will be <cargo dir>/src/FILE.rs
                 let path = e.path.parent().unwrap().parent().unwrap();
                 if print_path {
-                    println!("{}",path.display());
+                    println!("{}", path.display());
                 } else {
                     let ci = crate_utils::crate_info(&path.join("Cargo.toml"));
                     // respect the crate's edition!
@@ -245,22 +246,35 @@ fn main() {
                     // TBD can override --features with features actually
                     // used to build this crate
                     let build_features = &e.features;
-                    println!("building crate '{}' {} at {}",e.crate_name, build_features, e.path.display());
-                    compile_crate(&args, &state, &e.crate_name, &e.path, None,
+                    println!(
+                        "building crate '{}' {} at {}",
+                        e.crate_name,
+                        build_features,
+                        e.path.display()
+                    );
+                    compile_crate(
+                        &args,
+                        &state,
+                        &e.crate_name,
+                        &e.path,
+                        None,
                         Vec::new(),
-                        build_features.split_whitespace().map(|s| s.to_string()).collect()
+                        build_features
+                            .split_whitespace()
+                            .map(|s| s.to_string())
+                            .collect(),
                     );
                 }
                 return;
             }
-        } else
-        if compile { // either a cargo directory or a Rust source file
-            if ! file.exists() {
+        } else if compile {
+            // either a cargo directory or a Rust source file
+            if !file.exists() {
                 args.quit("no such file or directory");
             }
             let (crate_name, crate_path) = if file.is_dir() {
                 match crate_utils::cargo_dir(&file) {
-                    Ok((path,cargo_toml)) => {
+                    Ok((path, cargo_toml)) => {
                         // this is somewhat dodgy, since the default location can be changed
                         // Safest bet is to add the crate to the runner static cache
                         let source = path.join("src").join("lib.rs");
@@ -268,26 +282,42 @@ fn main() {
                         // respect the crate's edition!
                         state.edition = ci.edition;
                         (ci.name, source)
-                    },
-                    Err(msg) => args.quit(&msg)
+                    }
+                    Err(msg) => args.quit(&msg),
                 }
-            } else { // should be just a Rust source file
+            } else {
+                // should be just a Rust source file
                 if file.extension().or_die("expecting extension") != "rs" {
-                    args.quit("expecting known crate, dir containing Cargo.toml or Rust source file");
+                    args.quit(
+                        "expecting known crate, dir containing Cargo.toml or Rust source file",
+                    );
                 }
                 let name = crate_utils::path_file_name(&file.with_extension(""));
                 (name, file.clone())
             };
-            println!("building crate '{}' at {}",crate_name, crate_path.display());
-            compile_crate(&args, &state, &crate_name, &crate_path, None,  Vec::new(),Vec::new());
+            println!(
+                "building crate '{}' at {}",
+                crate_name,
+                crate_path.display()
+            );
+            compile_crate(
+                &args,
+                &state,
+                &crate_name,
+                &crate_path,
+                None,
+                Vec::new(),
+                Vec::new(),
+            );
             return;
-        } else { // we no longer go for wild goose chase to find crates in the Cargo cache
+        } else {
+            // we no longer go for wild goose chase to find crates in the Cargo cache
             args.quit("not found in the static cache");
         }
     }
 
-    let static_state = b("static") && ! b("dynamic");
-    let state = State::exe(static_state,optimized, &edition);
+    let static_state = b("static") && !b("dynamic");
+    let state = State::exe(static_state, optimized, &edition);
 
     // we'll pass rest of arguments to program
     let program_args = args.get_strings("args");
@@ -297,29 +327,33 @@ fn main() {
     let mut code = if b("expression") {
         // Evaluating an expression: just debug print it out.
         format!("println!(\"{{:?}}\",{});", quote(first_arg))
-    } else
-    if b("iterator") {
+    } else if b("iterator") {
         // The expression is anything that implements IntoIterator
-        format!("for val in {} {{\n println!(\"{{:?}}\",val);\n}}", quote(first_arg))
-    } else
-    if b("lines") {
+        format!(
+            "for val in {} {{\n println!(\"{{:?}}\",val);\n}}",
+            quote(first_arg)
+        )
+    } else if b("lines") {
         // The variable 'line' is available to an expression, evaluated for each line in stdin
         // But if the expression ends with '}' then don't dump out this value!
         let first_arg = quote(first_arg);
         let stmt = first_arg.trim_end().ends_with('}');
-        let mut s = String::from("
+        let mut s = String::from(
+            "
             let stdin = io::stdin();
             for line in stdin.lock().lines() {
                 let line = line?;
-        ");
-        s += &if ! stmt {
+        ",
+        );
+        s += &if !stmt {
             format!("let val = {};\nprintln!(\"{{:?}}\",val);", first_arg)
         } else {
-            format!("  {};",first_arg)
+            format!("  {};", first_arg)
         };
         s += "\n}";
         s
-    } else { // otherwise, just a file
+    } else {
+        // otherwise, just a file
         expression = false;
         program_contents.or_die("no .rs file")
     };
@@ -330,7 +364,7 @@ fn main() {
 
     // proper Rust programs are accepted (this is a bit rough)
     let proper = code.find("fn main").is_some();
-    let (rust_file, program) = if ! proper {
+    let (rust_file, program) = if !proper {
         // otherwise we must create a proper program from the snippet
         // and write this as a file in the Runner bin directory...
         let mut extern_crates = args.get_strings("extern");
@@ -345,31 +379,35 @@ fn main() {
         let macro_crates: HashSet<_> = macro_crates.into_iter().collect();
 
         let mut extra = args.get_string("prepend");
-        if ! extra.is_empty() {
+        if !extra.is_empty() {
             extra.push(';');
         }
-        let maybe_prelude = if b("no-prelude") {
-            "".into()
-        } else {
-            prelude
-        };
+        let maybe_prelude = if b("no-prelude") { "".into() } else { prelude };
 
-        let (massaged_code, deduced_externs)
-            = massage_snippet(code, maybe_prelude, extern_crates, wild_crates, macro_crates, extra, edition=="2018");
+        let (massaged_code, deduced_externs) = massage_snippet(
+            code,
+            maybe_prelude,
+            extern_crates,
+            wild_crates,
+            macro_crates,
+            extra,
+            edition == "2018",
+        );
         code = massaged_code;
         externs = deduced_externs;
-        if ! expression {
+        if !expression {
             bin.push(file.file_name().unwrap());
             bin.set_extension("rs");
-        } else { // we make up a name...
+        } else {
+            // we make up a name...
             bin.push("tmp.rs");
         }
-        fs::write(&bin,&code).or_die("cannot write code");
+        fs::write(&bin, &code).or_die("cannot write code");
         let program = bin.with_extension(exe_suffix);
         (bin, program)
     } else {
         for line in code.lines() {
-            if let Some(crate_name) = strutil::word_after(line,"extern crate ") {
+            if let Some(crate_name) = strutil::word_after(line, "extern crate ") {
                 externs.push(crate_name);
             }
         }
@@ -380,15 +418,23 @@ fn main() {
     };
 
     if b("run") {
-        if ! program.exists() {
-            args.quit(&format!("program {:?} does not exist",program));
+        if !program.exists() {
+            args.quit(&format!("program {:?} does not exist", program));
         }
     } else {
-        if ! compile_crate(&args,&state,"",&rust_file,Some(&program), externs, Vec::new()) {
+        if !compile_crate(
+            &args,
+            &state,
+            "",
+            &rust_file,
+            Some(&program),
+            externs,
+            Vec::new(),
+        ) {
             process::exit(1);
         }
         if verbose {
-            println!("compiled {:?} successfully",rust_file);
+            println!("compiled {:?} successfully", rust_file);
         }
     }
 
@@ -397,43 +443,49 @@ fn main() {
         let out_dir = args.get_path("output");
         let home = if out_dir == Path::new("cargo") {
             let home = crate_utils::cargo_home().join("bin");
-            if ! home.is_dir() {
+            if !home.is_dir() {
                 // With Windows, standalone installer does not create this directory
                 // (may well be a Bugge)
                 fs::create_dir(&home).or_die("could not create Cargo bin directory");
-                println!("creating Cargo bin directory {}\nEnsure it is on your PATH",home.display());
+                println!(
+                    "creating Cargo bin directory {}\nEnsure it is on your PATH",
+                    home.display()
+                );
             }
             home
         } else {
             out_dir
         };
         let here = home.join(file_name).with_extension(exe_suffix);
-        println!("Copying {} to {}",program.display(),here.display());
-        fs::copy(&program,&here).or_die("cannot copy program");
+        println!("Copying {} to {}", program.display(), here.display());
+        fs::copy(&program, &here).or_die("cannot copy program");
         return;
     }
 
     // Finally run the compiled program
     let ch = cache::get_cache(&state);
     let mut builder = process::Command::new(&program);
-    if ! state.build_static {
+    if !state.build_static {
         // must make the dynamic cache visible to the program!
         if cfg!(windows) {
             // Windows resolves DLL references on the PATH
             let path = env::var("PATH").unwrap();
-            let new_path = format!("{};{}",path,ch.display());
-            builder.env("PATH",new_path);
+            let new_path = format!("{};{}", path, ch.display());
+            builder.env("PATH", new_path);
         } else {
             // whereas POSIX requires LD_LIBRARY_PATH
-            builder.env("LD_LIBRARY_PATH",format!("{}:{}",*RUSTUP_LIB,ch.display()));
+            builder.env(
+                "LD_LIBRARY_PATH",
+                format!("{}:{}", rustup_lib(), ch.display()),
+            );
         }
     }
-    let status = builder.args(&program_args)
+    let status = builder
+        .args(&program_args)
         .status()
-        .or_then_die(|e| format!("can't run program {:?}: {}",program,e));
+        .or_then_die(|e| format!("can't run program {:?}: {}", program, e));
 
-    if ! status.success() {
+    if !status.success() {
         process::exit(status.code().unwrap_or(-1));
     }
 }
-
