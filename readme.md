@@ -172,12 +172,14 @@ made to work in all cases.
 You can say `runner --edit` to edit the static cache `Cargo.toml`, and `runner --build` to
 rebuild the cache afterwards. `runner update` will update all the dependencies in the
 cache, and `runner update package` will update a _particular_ package - follow this
-with `build` as before.
+with `build` as before. (for `--edit` to work on Posix then define `VISUAL` or `EDITOR` 
+in environment.)
 
  The cache is built for both debug and release mode,
 so using `-sO` you can build snippets in release mode. Documentation is also built
 for the cache, and `runner --doc` will open that documentation in the browser. (It's
-always nice to have local docs, especially in bandwidth-starved situations.)
+always nice to have local docs, especially in bandwidth-starved situations. If you
+ are in WSL2 install the `wslu` package so the docs will open on the host.)
 
 If you want docs for a specific crate `NAME`, then `runner --doc NAME` will work.
 Remember that the Rust documentation generated has a fast offline searchable

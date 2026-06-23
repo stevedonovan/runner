@@ -26,6 +26,7 @@ toml = "0.4.5"
 serde = { version = "1.0.27", features = ["derive"] }
 shlex = "0.1.1"
 dirs = "1.0"
+anyhow = "1.0.102"
 
 [profile.release]
 panic = 'abort'

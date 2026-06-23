@@ -1,8 +1,20 @@
-//: --static
-use serde_json::json;
+// json.rs
+use json;
 
-println!("{}",
-    json! ({
-        "hello": 42,
-    })
-);
+let parsed = json::parse(r#"
+
+{
+    "code": 200,
+    "success": true,
+    "payload": {
+        "features": [
+            "awesome",
+            "easyAPI",
+            "lowLearningCurve"
+        ]
+    }
+}
+
+"#)?;
+
+println!("{}",parsed);

@@ -24,8 +24,7 @@ pub fn edit(p: &Path) -> Result<()> {
         "vim".into()
     } else if cfg!(target_os = "windows") {
         // likewise, regular 'start' won't cope with files-without-known-extensions
-        // Notepad is useless, so use Wordpad
-        "write".into()
+        "notepad".into()
     } else {
         "open".into()
     };
