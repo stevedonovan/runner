@@ -117,14 +117,14 @@ impl Meta {
         }
         Ok(Meta { entries: v })
     }
-    pub fn get_meta_entries<'a>(&'a self, name: &str) -> Vec<&'a MetaEntry> {
+    pub fn get_meta_entries(&self, name: &str) -> Vec<&MetaEntry> {
         self.entries
             .iter()
             .filter(|e| e.package == name || e.crate_name == name)
             .collect()
     }
 
-    pub fn get_meta_entry<'a>(&'a self, name: &str) -> Option<&'a MetaEntry> {
+    pub fn get_meta_entry(&self, name: &str) -> Option<&MetaEntry> {
         let mut v = self.get_meta_entries(name);
         if v.len() == 0 {
             return None;
@@ -190,10 +190,10 @@ impl Meta {
             if let Some((package, crate_name, vs, features, filename, path)) = read_entry(line)? {
                 let crate_name = proper_crate_name(&crate_name);
                 self.entries.push(MetaEntry {
-                    package: package,
-                    crate_name: crate_name,
+                    package,
+                    crate_name,
                     version: vs,
-                    features: features,
+                    features,
                     debug_name: filename,
                     release_name: String::new(),
                     path: PathBuf::from(path),
@@ -255,10 +255,10 @@ fn print_dependencies(
     if let Some(ref deps) = p.dependencies {
         for d in deps.iter() {
             let mut iter = d.split_whitespace();
-            let pname = iter.next().unwrap();
+            let package_name = iter.next().unwrap();
             let version = iter.next().unwrap();
-            println!("{}{} = \"{}\"", indents, pname, version);
-            print_dependencies(pname, version, packages, indent + 1)?;
+            println!("{}{} = \"{}\"", indents, package_name, version);
+            print_dependencies(package_name, version, packages, indent + 1)?;
         }
     }
     Ok(())

@@ -1,6 +1,6 @@
 // takes basic functionality from open crate
 // and fills in the important _edit_ case, respecting POSIX
-// and some Windows/MacOS limitations.
+// and some Windows/macOS limitations.
 use anyhow::{Context, Result};
 use std::env;
 use std::path::Path;
@@ -18,9 +18,8 @@ pub fn edit(p: &Path) -> Result<()> {
         ed
     } else if let Ok(ed) = env::var("EDITOR") {
         ed
-    } else
-    // MacOS open will NOT open random text files, so vim it is...
-    if cfg!(target_os = "macos") {
+    } else if cfg!(target_os = "macos") {
+        // best fallback
         "vim".into()
     } else if cfg!(target_os = "windows") {
         // likewise, regular 'start' won't cope with files-without-known-extensions

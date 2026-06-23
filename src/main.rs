@@ -442,7 +442,7 @@ fn main() -> Result<()> {
             let home = crate_utils::cargo_home()?.join("bin");
             if !home.is_dir() {
                 // With Windows, standalone installer does not create this directory
-                // (may well be a Bugge)
+                // (may well be a Bug)
                 fs::create_dir(&home).context("could not create Cargo bin directory")?;
                 println!(
                     "creating Cargo bin directory {}\nEnsure it is on your PATH",
@@ -466,7 +466,7 @@ fn main() -> Result<()> {
         // must make the dynamic cache visible to the program!
         if cfg!(windows) {
             // Windows resolves DLL references on the PATH
-            let path = env::var("PATH").unwrap();
+            let path = env::var("PATH")?;
             let new_path = format!("{};{}", path, ch.display());
             builder.env("PATH", new_path);
         } else {
