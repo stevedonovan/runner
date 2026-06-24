@@ -20,9 +20,10 @@ no_quote_replacement = []
 [dependencies]
 lapp = "0.4"
 open = "1.2"
-semver = "0.9"
+semver = { version ="1.0", features = ["std","serde"] }
 json = "0.11"
 toml = "0.4.5"
+csv = "1.4"
 serde = { version = "1.0.27", features = ["derive"] }
 shlex = "0.1.1"
 dirs = "1.0"

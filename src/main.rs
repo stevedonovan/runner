@@ -156,8 +156,12 @@ fn main() -> Result<()> {
     }
 
     // Static Cache Management
-    let crates = args.get_strings("add");
+    let mut crates = args.get_strings("add");
     if crates.len() > 0 {
+        if crates.len() == 1 && crates[0] == "." {
+            crates = cache::read_missing_crates()?;
+            cache::delete_missing_crates()?;
+        }
         cache::create_static_cache(&crates)?;
         if program_contents.is_none() {
             return Ok(());
@@ -265,6 +269,8 @@ fn main() -> Result<()> {
                     )?;
                 }
                 return Ok(());
+            } else {
+                bail!("cannot find crate '{}'", first_arg);
             }
         } else if compile {
             // either a cargo directory or a Rust source file

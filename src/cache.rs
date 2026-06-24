@@ -7,8 +7,8 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process;
 
-use crate::crate_utils;
 use crate::meta;
+use crate::{cache, crate_utils};
 
 use crate_utils::is_unstable_toolchain;
 
@@ -313,4 +313,27 @@ pub fn get_aliases() -> Result<HashMap<String, String>> {
             Some((key.trim().to_string(), value.trim().to_string()))
         })
         .collect())
+}
+
+pub fn save_missing_crates(missing: &[String]) -> Result<()> {
+    let p = file_missing_crates()?;
+    fs::write(p, &missing.join("\n")).context("cannot write to cache directory")?;
+    Ok(())
+}
+
+pub fn file_missing_crates() -> Result<PathBuf> {
+    let p = cache::runner_directory()?.join("missing-crates");
+    Ok(p)
+}
+
+pub fn delete_missing_crates() -> Result<()> {
+    let p = file_missing_crates()?;
+    fs::remove_file(&p).context("cannot delete missing crates")?;
+    Ok(())
+}
+
+pub fn read_missing_crates() -> Result<Vec<String>> {
+    let p = file_missing_crates()?;
+    let missing = fs::read_to_string(&p).context("cannot read missing crates file")?;
+    Ok(missing.split('\n').map(|s| s.to_string()).collect())
 }

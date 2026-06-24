@@ -3,8 +3,8 @@
 // for the latest available version in the static cache.
 extern crate json;
 use anyhow::{bail, Context, Result};
-use std::fs::{self, File};
-use std::io::Write;
+use std::fs::File;
+use std::io;
 use std::path::{Path, PathBuf};
 
 use super::crate_utils::proper_crate_name;
@@ -12,14 +12,13 @@ use crate::cache::static_cache_dir;
 use crate::cargo_lock;
 
 use semver::Version;
+use serde::{Deserialize, Serialize};
 
 fn as_str(v: &json::JsonValue) -> &str {
     v.as_str().unwrap()
 }
 
-fn read_entry(line: &str) -> Result<Option<(String, String, Version, String, String, String)>> {
-    use crate::strutil::next_2;
-
+fn read_entry(line: &str) -> Result<Option<MetaEntry>> {
     if let Ok(doc) = json::parse(line) {
         let features = doc["features"]
             .members()
@@ -37,8 +36,10 @@ fn read_entry(line: &str) -> Result<Option<(String, String, Version, String, Str
         if !(ext.is_none() || ext.unwrap() == "exe") {
             // ignore build artifacts
             // package_id has version
-            let package_id = as_str(&doc["package_id"]).split('@');
-            let (package, vs) = next_2(package_id);
+            let package_id = as_str(&doc["package_id"]).split('@').collect::<Vec<_>>();
+            let (package, vs) = (package_id[0], package_id[1]);
+            let idx = package.find('#').unwrap();
+            let package = &package[idx + 1..];
 
             // but look for _crate name_ in name field
             let name = as_str(&doc["target"]["name"]);
@@ -48,15 +49,15 @@ fn read_entry(line: &str) -> Result<Option<(String, String, Version, String, Str
 
             let vs = Version::parse(vs).context("bad semver")?;
             let filename = filename.to_str().context("filename not valid Unicode")?;
-            let src_path = path.to_str().context("cached path not valid Unicode")?;
-            Ok(Some((
-                package.into(),
-                name.into(),
-                vs,
+            Ok(Some(MetaEntry {
+                package: package.to_string(),
+                crate_name: name.to_string(),
+                version: vs,
                 features,
-                filename.into(),
-                src_path.into(),
-            )))
+                debug_name: filename.to_string(),
+                release_name: "".to_string(),
+                path: path.to_path_buf(),
+            }))
         } else {
             Ok(None)
         }
@@ -69,7 +70,7 @@ fn file_name(cache: &Path) -> PathBuf {
     cache.join("cargo.meta")
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct MetaEntry {
     pub package: String,
     pub crate_name: String,
@@ -96,24 +97,16 @@ impl Meta {
     }
 
     pub fn new_from_file(cache: &Path) -> Result<Meta> {
-        fn opt_field(fields: &[&str], idx: usize) -> String {
-            if idx >= fields.len() { "" } else { fields[idx] }.into()
-        }
+        use csv;
+        let meta_f = file_name(cache);
+
+        let mut rdr = csv::Reader::from_reader(io::BufReader::new(File::open(&meta_f)?));
 
         let mut v = Vec::new();
-        let meta_f = file_name(cache);
-        let contents = fs::read_to_string(&meta_f).context("cannot read metafile")?;
-        for line in contents.lines() {
-            let parts = line.split(',').collect::<Vec<_>>();
-            v.push(MetaEntry {
-                package: parts[0].into(),
-                crate_name: parts[1].into(),
-                version: Version::parse(parts[2]).context("bad semver in metafile")?,
-                features: parts[3].into(),
-                debug_name: parts[4].into(),
-                release_name: parts[5].into(),
-                path: PathBuf::from(opt_field(&parts, 6)),
-            });
+
+        for result in rdr.deserialize() {
+            let record: MetaEntry = result?;
+            v.push(record);
         }
         Ok(Meta { entries: v })
     }
@@ -187,17 +180,9 @@ impl Meta {
         for line in txt.lines() {
             // note that features is in form '"foo","bar"' which we
             // store as 'foo bar'
-            if let Some((package, crate_name, vs, features, filename, path)) = read_entry(line)? {
-                let crate_name = proper_crate_name(&crate_name);
-                self.entries.push(MetaEntry {
-                    package,
-                    crate_name,
-                    version: vs,
-                    features,
-                    debug_name: filename,
-                    release_name: String::new(),
-                    path: PathBuf::from(path),
-                });
+            if let Some(mut entry) = read_entry(line)? {
+                entry.crate_name = proper_crate_name(&entry.crate_name);
+                self.entries.push(entry);
             }
         }
         Ok(())
@@ -205,15 +190,16 @@ impl Meta {
 
     pub fn release(&mut self, txt: String) -> Result<()> {
         for line in txt.lines() {
-            if let Some((name, _, vs, _, filename, _)) = read_entry(line)? {
+            if let Some(new_entry) = read_entry(line)? {
                 if let Some(entry) = self
                     .entries
                     .iter_mut()
-                    .find(|e| e.package == name && e.version == vs)
+                    .find(|e| e.package == new_entry.package && e.version == new_entry.version)
                 {
-                    entry.release_name = filename;
+                    // we assume that there has been a debug build, which has filled in the debug_name.
+                    entry.release_name = new_entry.debug_name;
                 } else {
-                    eprintln!("cannot find {} in release build", name);
+                    eprintln!("cannot find {} in release build", new_entry.package);
                 }
             }
         }
@@ -221,22 +207,13 @@ impl Meta {
     }
 
     pub fn update(self, cache: &Path) -> Result<()> {
+        use csv;
         let meta_f = file_name(cache);
-        let mut f = File::create(&meta_f).context("cannot create cargo.meta")?;
+        let mut wtr = csv::Writer::from_writer(io::BufWriter::new(File::create(&meta_f)?));
         for e in self.entries {
-            write!(
-                f,
-                "{},{},{},{},{},{},{}\n",
-                e.package,
-                e.crate_name,
-                e.version,
-                e.features,
-                e.debug_name,
-                e.release_name,
-                e.path.display()
-            )
-            .context("i/o?")?;
+            wtr.serialize(e)?;
         }
+        wtr.flush()?;
         Ok(())
     }
 }

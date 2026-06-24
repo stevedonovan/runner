@@ -1,7 +1,7 @@
 use crate::cache;
 use crate::crate_utils;
 use crate::state::State;
-use anyhow::{anyhow, Context, Result};
+use anyhow::{bail, Context, Result};
 use lapp;
 
 use std::collections::HashSet;
@@ -105,17 +105,30 @@ pub fn compile_crate(
 
     let extern_crates: Vec<(String, String)> = if state.build_static && extern_crates.len() > 0 {
         let m = cache::get_metadata()?;
-        extern_crates
+        let result = extern_crates
             .into_iter()
             .map(|c| {
-                Ok((
-                    m.get_full_crate_name(&c, debug).ok_or_else(|| {
-                        anyhow!("no such crate '{}' in static cache: use --add", c)
-                    })?,
+                Ok::<(String, String), String>((
+                    m.get_full_crate_name(&c, debug).ok_or_else(|| c.clone())?,
                     c,
                 ))
             })
-            .collect::<Result<Vec<_>>>()?
+            .collect::<Vec<_>>();
+        let (mut crates, mut errors) = (vec![], vec![]);
+        for r in result {
+            match r {
+                Ok(c) => crates.push(c),
+                Err(e) => errors.push(e),
+            }
+        }
+        if errors.len() > 0 {
+            cache::save_missing_crates(&errors)?;
+            bail!(
+                "no such crates '{}' in static cache: use --add . to add them",
+                errors.join(" ")
+            );
+        }
+        crates
     } else {
         extern_crates
             .into_iter()
