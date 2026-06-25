@@ -78,6 +78,7 @@ pub fn compile_crate(
         // static build
         builder.arg(if state.optimize { "-O" } else { "-g" });
         if state.optimize {
+            // TODO but stacktraces??
             // no point in carrying around all that baggage...
             builder.args(&["-C", "debuginfo=0"]);
         }
@@ -127,6 +128,9 @@ pub fn compile_crate(
                 "no such crates '{}' in static cache: use --add . to add them",
                 errors.join(" ")
             );
+        }
+        if verbose {
+            println!("{:?} crates", crates);
         }
         crates
     } else {

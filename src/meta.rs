@@ -1,6 +1,7 @@
 // parse output of cargo build --message-format json,
 // caching the results. Can get the exact name of the .rlib
 // for the latest available version in the static cache.
+extern crate csv;
 extern crate json;
 use anyhow::{bail, Context, Result};
 use std::fs::File;
@@ -55,7 +56,7 @@ fn read_entry(line: &str) -> Result<Option<MetaEntry>> {
                 version: vs,
                 features,
                 debug_name: filename.to_string(),
-                release_name: "".to_string(),
+                release_name: filename.to_string(),
                 path: path.to_path_buf(),
             }))
         } else {
@@ -97,7 +98,6 @@ impl Meta {
     }
 
     pub fn new_from_file(cache: &Path) -> Result<Meta> {
-        use csv;
         let meta_f = file_name(cache);
 
         let mut rdr = csv::Reader::from_reader(io::BufReader::new(File::open(&meta_f)?));
@@ -176,7 +176,7 @@ impl Meta {
 
     // constructing from output of 'cargo build'
 
-    pub fn debug(&mut self, txt: String) -> Result<()> {
+    pub fn release(&mut self, txt: String) -> Result<()> {
         for line in txt.lines() {
             // note that features is in form '"foo","bar"' which we
             // store as 'foo bar'
@@ -188,26 +188,7 @@ impl Meta {
         Ok(())
     }
 
-    pub fn release(&mut self, txt: String) -> Result<()> {
-        for line in txt.lines() {
-            if let Some(new_entry) = read_entry(line)? {
-                if let Some(entry) = self
-                    .entries
-                    .iter_mut()
-                    .find(|e| e.package == new_entry.package && e.version == new_entry.version)
-                {
-                    // we assume that there has been a debug build, which has filled in the debug_name.
-                    entry.release_name = new_entry.debug_name;
-                } else {
-                    eprintln!("cannot find {} in release build", new_entry.package);
-                }
-            }
-        }
-        Ok(())
-    }
-
     pub fn update(self, cache: &Path) -> Result<()> {
-        use csv;
         let meta_f = file_name(cache);
         let mut wtr = csv::Writer::from_writer(io::BufWriter::new(File::create(&meta_f)?));
         for e in self.entries {

@@ -136,13 +136,9 @@ pub fn static_cache_dir_check() -> Result<PathBuf> {
 pub fn build_static_cache() -> Result<bool> {
     use crate::meta::*;
     let mut m = Meta::new();
-    match cargo_build(false)? {
-        None => return Ok(false),
-        Some(s) => m.debug(s),
-    }?;
     match cargo_build(true)? {
         None => return Ok(false),
-        Some(s) => m.release(s),
+        Some(s) => m.release(s), // passop
     }?;
     m.update(&static_cache_dir()?)?;
     cargo(&["doc"])

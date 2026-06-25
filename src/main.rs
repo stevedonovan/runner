@@ -32,7 +32,6 @@ const USAGE: &str = "
 Compile and run small Rust snippets
   -s, --static build statically (default is dynamic)
   -d, --dynamic overrides --static in env.rs
-  -O, --optimize optimized static build
   -e, --expression evaluate an expression
   -i, --iterator iterate over an expression
   -n, --lines evaluate expression over stdin; the var 'line' is defined
@@ -221,7 +220,7 @@ fn main() -> Result<()> {
 
     let first_arg = args.get_string("program");
     let file = PathBuf::from(&first_arg);
-    let optimized = args.get_bool("optimize");
+    let optimized = true; // args.get_bool("optimize");
     let edition = args.get_string("edition");
 
     // Dynamically linking crates (experimental!)
