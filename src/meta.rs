@@ -212,9 +212,12 @@ fn print_dependencies(
     let indents = (0..indent).map(|_| '\t').collect::<String>();
     if let Some(ref deps) = p.dependencies {
         for d in deps.iter() {
-            let mut iter = d.split_whitespace();
-            let package_name = iter.next().unwrap();
-            let version = iter.next().unwrap();
+            let dep = packages
+                .iter()
+                .find(|p| p.name == *d)
+                .context("cannot find package in static cache Cargo.lock")?;
+            let package_name = &dep.name;
+            let version = &dep.version;
             println!("{}{} = \"{}\"", indents, package_name, version);
             print_dependencies(package_name, version, packages, indent + 1)?;
         }

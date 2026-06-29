@@ -8,7 +8,7 @@ pub struct CargoLock {
     pub package: Vec<Package>,
 }
 
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, Debug)]
 pub struct Package {
     pub name: String,
     pub version: String,
