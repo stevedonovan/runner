@@ -43,8 +43,9 @@ Compile and run small Rust snippets
   -c, --compile-only  compiles program and copies to output dir
   -o, --output (path default cargo) change the default output dir for compilation
   -r, --run  don't compile, only re-run
+  -R, --rerun only recompile if snippet has fresher timestamp
   -S, --no-simplify by default, attempt to simplify rustc error messages
-  -E, --edition (default '2018') Rust edition
+  -E, --edition (default '2024') Rust edition
 
   Cache Management:
   --add  (string...) add new crates to the cache
@@ -319,7 +320,7 @@ fn main() -> Result<()> {
     }
 
     let static_state = b("static") && !b("dynamic");
-    let state = State::exe(static_state, optimized, &edition);
+    let mut state = State::exe(static_state, optimized, &edition);
 
     // we'll pass rest of arguments to program
     let program_args = args.get_strings("args");
@@ -408,10 +409,17 @@ fn main() -> Result<()> {
         let program = bin.with_extension(exe_suffix);
         (bin, program)
     } else {
+        let mut static_externs = 0;
+        // we are given a proper Rust source file, and deduce the crates needed for
+        // static linking from the source
         for line in code.lines() {
             if let Some(crate_name) = strutil::word_after(line, "extern crate ") {
                 externs.push(crate_name);
+                static_externs += 1;
             }
+        }
+        if static_externs > 0 {
+            state.build_static = true;
         }
         // the 'proper' case - use the file name part
         bin.push(file.file_name().unwrap());

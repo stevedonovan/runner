@@ -103,7 +103,6 @@ pub fn compile_crate(
     // explicit --extern references require special treatment for
     // static builds, since the libnames include a hash.
     // So we look for the latest crate of this name
-
     let extern_crates: Vec<(String, String)> = if state.build_static && extern_crates.len() > 0 {
         let m = cache::get_metadata()?;
         let result = extern_crates
