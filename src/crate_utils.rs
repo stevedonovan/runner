@@ -83,7 +83,7 @@ pub fn crate_info(cargo_toml: &Path) -> Result<CrateInfo> {
     let body = fs::read_to_string(cargo_toml).context("cannot read Cargo.toml")?;
     let toml = body
         .parse::<toml::Value>()
-        .context("cannot parse Cargo.toml")?;
+        .with_context(|| format!("{}: cannot parse Cargo.toml", cargo_toml.display()))?;
     let package = toml.as_table().unwrap().get("package").unwrap();
     let name = package.get("name").unwrap().as_str().unwrap().to_string();
     let edition = match package.get("edition") {

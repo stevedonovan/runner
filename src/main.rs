@@ -21,14 +21,14 @@ mod platform;
 mod state;
 mod strutil;
 
-use crate::cache::compare_file_times;
+use crate::cache::{compare_file_times, lookup_file_path};
 use crate::compile::extract_externs;
 use compile::{compile_crate, massage_snippet};
 use crate_utils::rustup_lib;
 use platform::{edit, open};
 use state::State;
 
-const VERSION: &str = "0.4.0";
+const VERSION: &str = "0.7.0";
 
 const USAGE: &str = "
 Compile and run small Rust snippets
@@ -94,9 +94,8 @@ fn read_file_with_arg_comment(args: &mut lapp::Args, file: &Path) -> Result<(Str
 fn main() -> Result<()> {
     let mut args = lapp::Args::new(USAGE);
     args.parse_spec().context("bad spec")?;
-    let env = Path::new("env.rs");
-    let env_prelude = if env.exists() {
-        let (contents, _) = read_file_with_arg_comment(&mut args, env)?;
+    let env_prelude = if let Some(env) = lookup_file_path("env.rs") {
+        let (contents, _) = read_file_with_arg_comment(&mut args, &env)?;
         Some(contents)
     } else {
         None
@@ -104,28 +103,26 @@ fn main() -> Result<()> {
 
     args.parse_env_args().context("bad command line")?;
 
-    let program_contents = if let Ok(program) = args.get_string_result("program") {
-        let prog = Path::new(&program);
+    // resolving location of programs and reading their content - this may affect the flags!
+    let (program_contents, file) = if let Ok(program) = args.get_string_result("program") {
         if program.ends_with(".rs") {
-            if !prog.is_file() {
-                bail!("file does not exist");
-            }
+            let prog = lookup_file_path(&program).context("source file does not exist")?;
             args.clear_used();
             let (contents, has_arg_comment) = read_file_with_arg_comment(&mut args, &prog)?;
             if has_arg_comment {
                 args.parse_env_args().context("bad command line")?;
             }
-            Some(contents)
+            (Some(contents), prog)
         } else {
-            None
+            (None, PathBuf::from(&program))
         }
     } else {
-        None
+        (None, PathBuf::default())
     };
 
     let mut prelude = cache::get_prelude()?;
     if let Some(env_prelude) = env_prelude {
-        prelude.insert_str(0, &env_prelude);
+        prelude.push_str(&env_prelude);
     }
     let b = |p| args.get_bool(p);
 
@@ -222,14 +219,13 @@ fn main() -> Result<()> {
     }
 
     let first_arg = args.get_string("program");
-    let file = PathBuf::from(&first_arg); // at this point, there
+
     let optimized = true; // all builds are now optimized
-    let edition = args.get_string("edition");
 
     // Dynamically linking crates (experimental!)
     let (print_path, compile) = (b("crate-path"), b("compile"));
     if print_path || compile {
-        let mut state = State::dll(optimized, &edition);
+        let mut state = State::dll(optimized, &args);
         // plain-jane name is a crate name!
         if crate_utils::plain_name(&first_arg) {
             // but is it one of Ours? Then we definitely know what the
@@ -258,7 +254,6 @@ fn main() -> Result<()> {
                         e.path.display()
                     );
                     compile_crate(
-                        &args,
                         &state,
                         &e.crate_name,
                         &e.path,
@@ -306,7 +301,6 @@ fn main() -> Result<()> {
                 crate_path.display()
             );
             compile_crate(
-                &args,
                 &state,
                 &crate_name,
                 &crate_path,
@@ -322,7 +316,7 @@ fn main() -> Result<()> {
     }
 
     let static_state = b("static") && !b("dynamic");
-    let mut state = State::exe(static_state, optimized, &edition);
+    let mut state = State::exe(static_state, optimized, &args);
 
     // we'll pass rest of arguments to program
     let program_args = args.get_strings("args");
@@ -436,15 +430,7 @@ fn main() -> Result<()> {
             bail!("program {:?} does not exist", program);
         }
     } else {
-        if !compile_crate(
-            &args,
-            &state,
-            "",
-            &rust_file,
-            Some(&program),
-            externs,
-            Vec::new(),
-        )? {
+        if !compile_crate(&state, "", &rust_file, Some(&program), externs, Vec::new())? {
             process::exit(1);
         }
         if verbose {

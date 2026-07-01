@@ -59,7 +59,10 @@ pub fn quote(s: String) -> String {
 }
 
 pub fn runner_directory() -> Result<PathBuf> {
-    let mut runner = crate_utils::cargo_home()?.join(".runner");
+    let mut runner = env::var("RUNNER_HOME")
+        .map(PathBuf::from)
+        .or_else(|_| crate_utils::cargo_home())?
+        .join(".runner");
     if is_unstable_toolchain()? {
         runner.push("unstable");
     }
@@ -285,6 +288,25 @@ pub fn compare_file_times(program: &Path, exe: &Path) -> Result<bool> {
     } else {
         true
     })
+}
+
+pub fn lookup_file_path(file: &str) -> Option<PathBuf> {
+    if let Ok(path) = env::var("RUNNER_PATH") {
+        for p in path.split(':') {
+            let candidate = Path::new(p).join(file);
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+        None
+    } else {
+        let path = PathBuf::from(file);
+        if path.is_file() {
+            Some(path)
+        } else {
+            None
+        }
+    }
 }
 
 pub fn add_aliases(aliases: Vec<String>) -> Result<()> {

@@ -2,7 +2,6 @@ use crate::cache;
 use crate::crate_utils;
 use crate::state::State;
 use anyhow::{bail, Context, Result};
-use lapp;
 
 use crate::strutil::{split, word_after};
 use std::collections::HashSet;
@@ -30,7 +29,6 @@ fn simplify_qualified_names(text: &str) -> String {
 // - compile a crate as a dynamic library, given a name and an output dir
 // - compile a program, given a program
 pub fn compile_crate(
-    args: &lapp::Args,
     state: &State,
     crate_name: &str,
     crate_path: &Path,
@@ -38,20 +36,20 @@ pub fn compile_crate(
     mut extern_crates: Vec<String>,
     features: Vec<String>,
 ) -> Result<bool> {
-    let verbose = args.get_bool("verbose");
-    let simplify = !args.get_bool("no-simplify");
+    let verbose = state.verbose;
+    let simplify = state.simplify;
     let debug = !state.optimize;
 
     // implicit linking works fine, until it doesn't
-    extern_crates.extend(args.get_strings("extern"));
+    extern_crates.extend(state.externs.clone());
     extern_crates.sort();
     extern_crates.dedup();
     // libc is such a special case
-    if args.get_bool("libc") {
+    if state.libc {
         extern_crates.push("libc".into());
     }
-    let mut cfg = args.get_strings("cfg");
-    let explicit_features = args.get_strings("features");
+    let mut cfg = state.cfg.clone();
+    let explicit_features = state.features.clone();
     for f in if explicit_features.len() > 0 {
         explicit_features
     } else {
@@ -69,11 +67,11 @@ pub fn compile_crate(
         builder
             .args(&["-C", "prefer-dynamic"])
             .args(&["-C", "debuginfo=0"]);
-        if let Ok(link) = args.get_string_result("link") {
+        if let Some(link) = &state.link {
             if verbose {
                 println!("linking against {}", link);
             }
-            builder.arg("-L").arg(&link);
+            builder.arg("-L").arg(link);
         }
     } else {
         // static build
