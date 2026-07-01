@@ -1,14 +1,13 @@
 // cache management
 
+use crate::meta;
+use crate::{cache, crate_utils};
 use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process;
-
-use crate::meta;
-use crate::{cache, crate_utils};
 
 use crate_utils::is_unstable_toolchain;
 
@@ -276,6 +275,16 @@ pub fn get_cache(state: &State) -> Result<PathBuf> {
         home.push(DYNAMIC_CACHE);
     };
     Ok(home)
+}
+
+// assume that `program` always exists, but `exe` may not
+pub fn compare_file_times(program: &Path, exe: &Path) -> Result<bool> {
+    let meta1 = program.metadata()?;
+    Ok(if let Ok(meta2) = exe.metadata() {
+        meta1.modified()? > meta2.modified()?
+    } else {
+        true
+    })
 }
 
 pub fn add_aliases(aliases: Vec<String>) -> Result<()> {

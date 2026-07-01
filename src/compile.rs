@@ -4,6 +4,7 @@ use crate::state::State;
 use anyhow::{bail, Context, Result};
 use lapp;
 
+use crate::strutil::{split, word_after};
 use std::collections::HashSet;
 use std::env::consts::{DLL_PREFIX, DLL_SUFFIX};
 use std::io::IsTerminal;
@@ -171,9 +172,8 @@ pub fn massage_snippet(
     wild_crates: Vec<String>,
     macro_crates: HashSet<String>,
     body_prelude: String,
-    is2018: bool,
 ) -> Result<(String, Vec<String>)> {
-    use crate::strutil::{after, split, word_after};
+    use crate::strutil::{after, word_after};
 
     fn indent_line(line: &str) -> String {
         format!("    {}\n", line)
@@ -224,17 +224,7 @@ pub fn massage_snippet(
             prefix += line;
             prefix.push('\n');
         } else if line.starts_with("extern ") || line.starts_with("use ") {
-            if let Some(crate_name) = word_after(line, "extern crate ") {
-                deduced_externs.push(crate_name);
-            }
-            if is2018 {
-                if let Some(path) = word_after(line, "use ") {
-                    let (name, rest) = split(&path, ':');
-                    if !["std", "core", "alloc", "crate"].contains(&name) || rest == "" {
-                        deduced_externs.push(name.into());
-                    }
-                }
-            }
+            extract_externs(line, &mut deduced_externs);
             prefix += line;
             prefix.push('\n');
         } else if line.starts_with("#![") {
@@ -270,4 +260,19 @@ fn main() {{
     );
 
     Ok((massaged_code, deduced_externs))
+}
+
+pub fn extract_externs(line: &str, deduced_externs: &mut Vec<String>) -> bool {
+    if let Some(crate_name) = word_after(line, "extern crate ") {
+        deduced_externs.push(crate_name);
+        return true;
+    }
+    if let Some(path) = word_after(line, "use ") {
+        let (name, rest) = split(&path, ':');
+        if !["std", "core", "alloc", "crate"].contains(&name) || rest == "" {
+            deduced_externs.push(name.into());
+            return true;
+        }
+    }
+    false
 }

@@ -21,6 +21,8 @@ mod platform;
 mod state;
 mod strutil;
 
+use crate::cache::compare_file_times;
+use crate::compile::extract_externs;
 use compile::{compile_crate, massage_snippet};
 use crate_utils::rustup_lib;
 use platform::{edit, open};
@@ -109,7 +111,7 @@ fn main() -> Result<()> {
                 bail!("file does not exist");
             }
             args.clear_used();
-            let (contents, has_arg_comment) = read_file_with_arg_comment(&mut args, prog)?;
+            let (contents, has_arg_comment) = read_file_with_arg_comment(&mut args, &prog)?;
             if has_arg_comment {
                 args.parse_env_args().context("bad command line")?;
             }
@@ -220,8 +222,8 @@ fn main() -> Result<()> {
     }
 
     let first_arg = args.get_string("program");
-    let file = PathBuf::from(&first_arg);
-    let optimized = true; // args.get_bool("optimize");
+    let file = PathBuf::from(&first_arg); // at this point, there
+    let optimized = true; // all builds are now optimized
     let edition = args.get_string("edition");
 
     // Dynamically linking crates (experimental!)
@@ -325,6 +327,7 @@ fn main() -> Result<()> {
     // we'll pass rest of arguments to program
     let program_args = args.get_strings("args");
 
+    let mut just_run = b("run");
     let mut expression = true;
     use cache::quote;
     let mut code = if b("expression") {
@@ -394,7 +397,6 @@ fn main() -> Result<()> {
             wild_crates,
             macro_crates,
             extra,
-            edition == "2018",
         )?;
         code = massaged_code;
         externs = deduced_externs;
@@ -407,14 +409,16 @@ fn main() -> Result<()> {
         }
         fs::write(&bin, &code).context("cannot write code")?;
         let program = bin.with_extension(exe_suffix);
+        if !expression && b("rerun") {
+            just_run = !compare_file_times(&file, &program)?;
+        }
         (bin, program)
     } else {
         let mut static_externs = 0;
         // we are given a proper Rust source file, and deduce the crates needed for
         // static linking from the source
         for line in code.lines() {
-            if let Some(crate_name) = strutil::word_after(line, "extern crate ") {
-                externs.push(crate_name);
+            if extract_externs(line, &mut externs) {
                 static_externs += 1;
             }
         }
@@ -427,7 +431,7 @@ fn main() -> Result<()> {
         (file, program)
     };
 
-    if b("run") {
+    if just_run {
         if !program.exists() {
             bail!("program {:?} does not exist", program);
         }
