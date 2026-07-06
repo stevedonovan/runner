@@ -77,13 +77,13 @@ pub struct MetaEntry {
     pub crate_name: String,
     pub version: Version,
     pub features: String,
-    debug_name: String,
-    release_name: String,
+    pub debug_name: String,
+    pub release_name: String,
     pub path: PathBuf,
 }
 
 pub struct Meta {
-    entries: Vec<MetaEntry>,
+    pub entries: Vec<MetaEntry>,
 }
 
 impl Meta {
@@ -139,11 +139,6 @@ impl Meta {
         })
     }
 
-    pub fn is_crate_present(&self, name: &str) -> bool {
-        let entries = self.get_meta_entries(name);
-        entries.len() > 0
-    }
-
     pub fn dump_crates(&mut self, maybe_names: Vec<String>, verbose: bool) -> Result<()> {
         if maybe_names.len() > 0 {
             let packages = if verbose {
@@ -182,6 +177,7 @@ impl Meta {
             // store as 'foo bar'
             if let Some(mut entry) = read_entry(line)? {
                 entry.crate_name = proper_crate_name(&entry.crate_name);
+                // println!("entry {} {}", entry.package, entry.version);
                 self.entries.push(entry);
             }
         }

@@ -39,15 +39,6 @@ macro_rules! debug {
 }
 ";
 
-// a fairly arbitrary set of crates to start the ball rolling
-// cf. https://github.com/brson/stdx
-const KITCHEN_SINK: &str = "
-    chrono
-    regex
-    serde_json
-    serde_yaml
-";
-
 // Windows shell quoting is a mess, so we make single quotes
 // become double quotes in expressions
 pub fn quote(s: String) -> String {
@@ -135,101 +126,71 @@ pub fn static_cache_dir_check() -> Result<PathBuf> {
     Ok(static_cache)
 }
 
+fn remove_file_and_log(file_path: &Path) {
+    println!("removing {}", file_path.display());
+    if let Err(e) = fs::remove_file(file_path) {
+        println!("could not remove {}: {:?}", file_path.display(), e);
+    }
+}
 pub fn build_static_cache() -> Result<bool> {
     use crate::meta::*;
+    let old = get_metadata().unwrap_or_else(|_| Meta::new());
     let mut m = Meta::new();
     match cargo_build(true)? {
         None => return Ok(false),
         Some(s) => m.release(s), // passop
     }?;
+    let deps = static_cache_dir()?
+        .join("target")
+        .join("release")
+        .join("deps");
+    for p in &m.entries {
+        if let Some(q) = old.entries.iter().find(|e| e.package == p.package) {
+            if q.version != p.version {
+                // get rid of the old version!
+                let old_rlib = &deps.join(&q.debug_name);
+                let old_rmeta = &old_rlib.with_extension("rmeta");
+                remove_file_and_log(&old_rlib);
+                remove_file_and_log(&old_rmeta);
+            }
+        }
+    }
     m.update(&static_cache_dir()?)?;
     cargo(&["doc"])
 }
 
 pub fn create_static_cache(crates: &[String]) -> Result<()> {
-    use std::io::prelude::*;
-
     let static_cache = static_cache_dir()?;
     let exists = static_cache.exists();
 
-    let crates = if crates.len() == 1 && crates[0] == "kitchen-sink" {
-        KITCHEN_SINK.split_whitespace().map(|s| s.into()).collect()
-    } else {
-        crates.to_vec()
-    };
-
     let mut home = runner_directory()?;
     env::set_current_dir(&home).context("cannot change to home directory")?;
-
-    let mdata = if !exists {
+    if !exists {
         if !cargo(&["new", "--bin", STATIC_CACHE])? {
             bail!("cannot create static cache");
         }
-        None
-    } else {
-        Some(get_metadata()?)
-    };
-    let check_crate = |s: &str| {
-        if let Some(m) = &mdata {
-            m.is_crate_present(s)
-        } else {
-            false
-        }
-    };
+    }
 
+    home.push(STATIC_CACHE);
+    env::set_current_dir(&home).context("cannot change to static cache directory")?;
     // there are three forms possible
     // a plain crate name - we assume latest version ('*')
     // a name=vs - we'll ensure it gets quoted properly
     // a local Cargo project
-    let mut crates_vs = Vec::new();
-    for c in &crates {
-        if let Some(idx) = c.find('=') {
-            // help with a little bit of quoting...
-            let (name, vs) = (&c[0..idx], &c[(idx + 1)..]);
-            crates_vs.push((name.to_string(), vs.to_string(), true));
-        } else if let Some((name, path)) = maybe_cargo_dir(&c)? {
+    for c in crates {
+        if c.contains("=") {
+            let c = c.replace("=", "@").to_string();
+            cargo(&["add", c.as_str()])?;
+        } else if let Some((_, path)) = maybe_cargo_dir(&c)? {
             // hello - this is a local Cargo project!
-            if !check_crate(&name) {
-                crates_vs.push((
-                    name,
-                    path.to_str()
-                        .context("local Cargo path was not valid Unicode")?
-                        .to_string(),
-                    false,
-                ));
-            }
-        } else if !check_crate(c) {
+            cargo(&["add", "--path", path.to_str().unwrap()])?;
+        } else {
             // latest version of crate
-            crates_vs.push((c.to_string(), '*'.to_string(), true));
+            cargo(&["add", c.as_str()])?;
         }
     }
 
-    if crates_vs.len() == 0 {
-        return Ok(());
-    }
-
-    home.push(STATIC_CACHE);
-    env::set_current_dir(&home).context("could not change to static cache directory")?;
-    let tmpfile = env::temp_dir().join("Cargo.toml");
-    fs::copy("Cargo.toml", &tmpfile).context("cannot back up Cargo.toml")?;
-    {
-        let mut deps = fs::OpenOptions::new()
-            .append(true)
-            .open("Cargo.toml")
-            .context("could not append to Cargo.toml")?;
-        for (name, vs, semver) in crates_vs {
-            if semver {
-                write!(deps, "{}=\"{}\"\n", name, vs)
-            } else {
-                write!(deps, "{}={{path=\"{}\"}}\n", name, vs)
-            }
-            .context("could not modify Cargo.toml")?;
-        }
-    }
-    if !build_static_cache()? {
-        println!("Error occurred - restoring Cargo.toml");
-        fs::copy(&tmpfile, "Cargo.toml").context("cannot restore Cargo.toml")?;
-    }
+    build_static_cache()?;
     Ok(())
 }
 
@@ -290,8 +251,17 @@ pub fn compare_file_times(program: &Path, exe: &Path) -> Result<bool> {
     })
 }
 
-pub fn lookup_file_path(file: &str) -> Option<PathBuf> {
+// Find scripts (and env.rs) on `RUNNER_PATH` if defined.
+// If the original 'calling' script dir is available, we use that after checking current dir
+// (this becomes available as `@SCRIPT` in `RUNNER_PATH`)
+pub fn lookup_file_path(file: &str, script_path: Option<&PathBuf>) -> Option<PathBuf> {
     if let Ok(path) = env::var("RUNNER_PATH") {
+        let path = if let Some(script_path) = script_path {
+            let script_dir = script_path.parent()?;
+            path.replace("@SCRIPT", &script_dir.display().to_string())
+        } else {
+            path
+        };
         for p in path.split(':') {
             let candidate = Path::new(p).join(file);
             if candidate.is_file() {
@@ -303,6 +273,13 @@ pub fn lookup_file_path(file: &str) -> Option<PathBuf> {
         let path = PathBuf::from(file);
         if path.is_file() {
             Some(path)
+        } else if let Some(script_path) = script_path {
+            let path = script_path.parent()?.join(file);
+            if path.is_file() {
+                Some(path)
+            } else {
+                None
+            }
         } else {
             None
         }

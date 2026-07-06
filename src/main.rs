@@ -94,19 +94,13 @@ fn read_file_with_arg_comment(args: &mut lapp::Args, file: &Path) -> Result<(Str
 fn main() -> Result<()> {
     let mut args = lapp::Args::new(USAGE);
     args.parse_spec().context("bad spec")?;
-    let env_prelude = if let Some(env) = lookup_file_path("env.rs") {
-        let (contents, _) = read_file_with_arg_comment(&mut args, &env)?;
-        Some(contents)
-    } else {
-        None
-    };
-
     args.parse_env_args().context("bad command line")?;
 
     // resolving location of programs and reading their content - this may affect the flags!
     let (program_contents, file) = if let Ok(program) = args.get_string_result("program") {
         if program.ends_with(".rs") {
-            let prog = lookup_file_path(&program).context("source file does not exist")?;
+            println!("{:#?}", program);
+            let prog = lookup_file_path(&program, None).context("source file does not exist")?;
             args.clear_used();
             let (contents, has_arg_comment) = read_file_with_arg_comment(&mut args, &prog)?;
             if has_arg_comment {
@@ -118,6 +112,13 @@ fn main() -> Result<()> {
         }
     } else {
         (None, PathBuf::default())
+    };
+
+    let env_prelude = if let Some(env) = lookup_file_path("env.rs", Some(&file)) {
+        let (contents, _) = read_file_with_arg_comment(&mut args, &env)?;
+        Some(contents)
+    } else {
+        None
     };
 
     let mut prelude = cache::get_prelude()?;
