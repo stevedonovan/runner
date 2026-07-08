@@ -99,7 +99,6 @@ fn main() -> Result<()> {
     // resolving location of programs and reading their content - this may affect the flags!
     let (program_contents, file) = if let Ok(program) = args.get_string_result("program") {
         if program.ends_with(".rs") {
-            println!("{:#?}", program);
             let prog = lookup_file_path(&program, None).context("source file does not exist")?;
             args.clear_used();
             let (contents, has_arg_comment) = read_file_with_arg_comment(&mut args, &prog)?;
@@ -158,14 +157,13 @@ fn main() -> Result<()> {
     // Static Cache Management
     let mut crates = args.get_strings("add");
     if crates.len() > 0 {
+        // if we previously couldn't find a crate, then it's added to missing crates so `--add .` can work
         if crates.len() == 1 && crates[0] == "." {
             crates = cache::read_missing_crates()?;
             cache::delete_missing_crates()?;
         }
         cache::create_static_cache(&crates)?;
-        if program_contents.is_none() {
-            return Ok(());
-        }
+        return Ok(());
     }
 
     // operations on the static cache

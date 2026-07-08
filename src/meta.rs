@@ -31,16 +31,26 @@ fn read_entry(line: &str) -> Result<Option<MetaEntry>> {
             return Ok(None);
         }
         let path = Path::new(as_str(filenames));
-
         let filename = path.file_name().unwrap();
         let ext = path.extension();
         if !(ext.is_none() || ext.unwrap() == "exe") {
             // ignore build artifacts
             // package_id has version
-            let package_id = as_str(&doc["package_id"]).split('@').collect::<Vec<_>>();
-            let (package, vs) = (package_id[0], package_id[1]);
-            let idx = package.find('#').unwrap();
-            let package = &package[idx + 1..];
+            // "registry+https://github.com/rust-lang/crates.io-index#tokio@1.52.3" for crates.io
+            // "path+file:///home/steve/rust/jstream#0.1.0" for local projects
+            let pid = as_str(&doc["package_id"]);
+            let (package, vs) = if let Some(amp_idx) = pid.find('@') {
+                let (package, vs) = (&pid[..amp_idx], &pid[amp_idx + 1..]);
+                let idx = package.find('#').unwrap();
+                (&package[idx + 1..], vs)
+            } else {
+                let idx = pid.find('#').unwrap();
+                let (front, vs) = (&pid[..idx], &pid[idx + 1..]);
+                let package = Path::new(front).file_name().unwrap().to_str().unwrap();
+
+                (package, vs)
+            };
+            // println!("{package} {vs} {pid}");
 
             // but look for _crate name_ in name field
             let name = as_str(&doc["target"]["name"]);

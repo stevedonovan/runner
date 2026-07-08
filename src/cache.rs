@@ -180,7 +180,17 @@ pub fn create_static_cache(crates: &[String]) -> Result<()> {
     for c in crates {
         if c.contains("=") {
             let c = c.replace("=", "@").to_string();
-            cargo(&["add", c.as_str()])?;
+            let mut args = vec!["add"];
+            if let Some(idx) = c.find('/') {
+                for feature in c[idx + 1..].split(',') {
+                    args.push("--features");
+                    args.push(feature);
+                }
+                args.push(&c[0..idx]);
+            } else {
+                args.push(c.as_str());
+            }
+            cargo(&args)?;
         } else if let Some((_, path)) = maybe_cargo_dir(&c)? {
             // hello - this is a local Cargo project!
             cargo(&["add", "--path", path.to_str().unwrap()])?;
