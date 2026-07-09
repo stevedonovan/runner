@@ -1,7 +1,0 @@
-runner -C memchr
-runner -C aho-corasick
-runner -C utf8-ranges
-runner -C lazy_static
-runner -xlazy_static -C thread_local
-runner -C regex-syntax
-runner -C regex

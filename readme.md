@@ -31,10 +31,11 @@ $ runner print.rs
 Hello, World!
 ```
 
+The snippet file will be found on `RUNNER_PATH` if defined, e.g. `.:/home/me/myscripts`.
+
 This follows basically the same rules as the doc-test snippets you find in Rust
 documentation, so `runner` allows you to copy those snippets into an editor
-and directly run them (I bind 'run' for Rust projects to `runner ...` in
-my favourite editor.)
+and directly run them.
 
 You can use `?` in snippets instead of the ubiquitous and awful `unwrap`, since the boilerplate
 encloses code in a function that returns `Result<(),Box<Error+Sync+Send>>` which is compatible with
@@ -49,16 +50,20 @@ $ runner hello.rs dolly
 hello dolly
 ```
 
-You can even - on Unix platforms - add a 'shebang' line to invoke runner:
+You can even - on Unix platforms - add a 'shebang' line to invoke runner (but will still need an .rs extension).
 
 ```
-$ cat hello
+$ cat hello.rs
 #!/usr/bin/env runner
 println!("Hello, World!");
-
-$ ./hello
+$ chmod a+x hello.rs
+$ ./hello.rs
 Hello, World!
 ```
+
+> You can choose for these scripts not to be re-compiled each time with the `-R` flag. Then the
+> shebang line becomes `#!/usr/bin/env -S runner -R` and `runner` will compare the script timestamp with
+> the executable.
 
 `runner` adds the necessary boilerplate and creates a proper Rust program in `~/.cargo/.runner/bin`,
 prefixed with a prelude, which is initially:
@@ -86,9 +91,12 @@ macro_rules! debug {
 After first invocation of `runner`, this is found in `~/.cargo/.runner/prelude`;
 you can edit it later with `runner --edit-prelude`.
 
+If a file `env.rs` exists on `RUNNER_PATH` then its contents will be appended to the program prelude.
+This is useful to share constants and small functions among all your scripts.
+
 `debug!` saves typing: `debug!(my_var)` is equivalent to `println!("my_var = {:?}",my_var)`.
 
-As an experimental feature, `runner` will also do some massaging of `rustc` errors.
+`runner` will also do some massaging of `rustc` errors.
 They are usually very good, but involve fully qualified type names.
 It reduces `std::` references to something simpler.
 
@@ -127,7 +135,8 @@ $ runner --add "time json regex"
 
 You can add as many crates if you like - number of available dependencies doesn't
 slow down the linker. Thereafter, you may refer to these crates in snippets. Note that
-by default, `runner` uses 2018 edition since 0.4.0.
+by default, `runner` uses 2024 edition since 0.7.0. If you want a particular version, use 'foo=1.0'
+notation, and 'foo=1.0/f1,f2' to specify a version plus features.
 
 ```rust
 // json.rs
@@ -169,7 +178,7 @@ $ runner -s json.rs
 }
 ```
 
-A convenient new feature is "argument lines" - if the first line of `json.rs` was
+A convenient feature is "argument lines" - if the first line of `json.rs` was
 
 ```
 //: -s
@@ -182,13 +191,13 @@ made to work in all cases.
 
 `runner` provides various utilities for managing the static cache.
 You can say `runner --edit` to edit the static cache `Cargo.toml`, and `runner --build` to
-rebuild the cache afterwards. `runner update` will update all the dependencies in the
-cache, and `runner update package` will update a _particular_ package - follow this
+rebuild the cache afterwards. `runner --update` will update all the dependencies in the
+cache, and `runner --update package` will update a _particular_ package - follow this
 with `build` as before. (for `--edit` to work on Posix then define `VISUAL` or `EDITOR`
 in environment.)
 
-The cache is built for both debug and release mode,
-so using `-sO` you can build snippets in release mode. Documentation is also built
+The cache is built in release mode, since the compilation time is not much affected.
+Documentation is also built
 for the cache, and `runner --doc` will open that documentation in the browser. (It's
 always nice to have local docs, especially in bandwidth-starved situations. If you
 are in WSL2 install the `wslu` package so the docs will open on the host.)
@@ -210,12 +219,13 @@ then the dependencies of these crates are also listed.
 
 The `-c` flag only compiles the program or snippet, and copies it to `~/.cargo/bin`.
 `-r` only runs the program, which must have previously been compiled, either
-explicitly with `-c` or implicitly with default operation.
+explicitly with `-c` or implicitly with default operation. `-R` will rerun if changed,
+which is more convenient.
 
 Plain Rust source files (which already have `fn main`) are of course supported, but you
 will need explicit `extern crate <crate>` statements to bring in any crates from the static cache.
 
-A useful trick - if you want to look at the `Cargo.toml` of an already downloaded crate
+A useful trick - if you want to look at the `Cargo.toml` of a crate in the static cache,
 to find out dependencies and features, then this command will open it for you:
 
 ```
@@ -287,12 +297,16 @@ $ runner -i 'env::args().enumerate()' one 'two 2' 3
 ```
 
 And finally `-n` (or `--lines`) evaluates the expression for each line in
-standard input:
+standard input (`line` is a special variable):
 
 ```
 $ echo "hello there" | runner -n 'line.to_uppercase()'
 "HELLO THERE"
 ```
+
+In this case, you would probably would like to display the strings, not use Debug. There
+is a `-d` flag to set this. Note that then you have to remember to use an explicit error return
+in cases like `runner -de '"20".parse::<i32>()?'`
 
 The `-x` flag (`--extern`) allows you to insert an `extern crate` into your
 snippet. This is particularly useful for these one-line shortcuts. For
@@ -339,7 +353,7 @@ Not something you would overdo in regular code, but it makes for shorter
 command lines - the last example becomes (note how short flags can be combined):
 
 ```
-$ runner -sXtime -e "now()"
+$ runner -seX time 'Timestamp::now()'
 ...
 ```
 
@@ -402,6 +416,14 @@ $ runner -C text.rs
 building crate 'text' at text.rs
 $ runner -Xtext -e 'TEXT.find("long")'
 Some(14)
+```
+
+If there is an `env.rs` on the path, then it is a convenient way to provide global properties to
+scxripts and expressions:
+
+```
+cat env.rs
+//: -Xeasy_shortcuts
 ```
 
 ## Compiling Rust Doc Examples
@@ -468,37 +490,5 @@ The `--compile` action takes three kinds of arguments:
 - a Rust source file - the crate name is the file name without extension.
 
 Dynamic linking is not a priority for
-Rust tooling at the moment. So we have to build more elaborate libraries without the
-help of Cargo. (The following assumes that you have already brought in `regex` for a Cargo project,
-so that the Cargo cache is populated, e.g. with `runner --add regex`)
-
-```
-runner -C memchr
-runner -C aho-corasick
-runner -C utf8-ranges
-runner -C lazy_static
-runner -xlazy_static -C thread_local
-runner -C regex-syntax
-runner -C regex
-
-```
-
-This script drives home how tremendously irritating life in Rust would be without Cargo.
-We have to track the dependencies, ensure that the correct default features are enabled in the
-compilation, and special-case crates which directly link to `libc`.
-
-However, the results feel worthwhile. Compiling the first `regex` documented example:
-
-```rust
-use regex::Regex;
-let re = Regex::new(r"^\d{4}-\d{2}-\d{2}$").unwrap();
-assert!(re.is_match("2014-01-01"));
-```
-
-With a static build (`-s`) I get 0.56s on this machine, and 0.25s with dynamic linking.
-
-There are limitations to dynamic linking currently - crates which are "no std"
-(and don't provide a feature to turn this off) cannot be compiled. Also, remember
-that all invocations of `runner -C` end up with shared libraries placed in one
-directory called the 'dynamic cache' - there can only be one crate called 'libs'
-for example.
+Rust tooling at the moment. So although it is possible to write a wrapper crate that exposes e.g. `regex`
+as a shared library, it is still rather unstable.
