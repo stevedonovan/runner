@@ -33,7 +33,7 @@ const VERSION: &str = "0.7.0";
 const USAGE: &str = "
 Compile and run small Rust snippets
   -s, --static build statically (default is dynamic)
-  -d, --dynamic overrides --static in env.rs
+  -d, --display use Display instead of Debug in -e, -i and -n
   -e, --expression evaluate an expression
   -i, --iterator iterate over an expression
   -n, --lines evaluate expression over stdin; the var 'line' is defined
@@ -314,7 +314,7 @@ fn main() -> Result<()> {
         }
     }
 
-    let static_state = b("static") && !b("dynamic");
+    let static_state = b("static");
     let mut state = State::exe(static_state, optimized, &args);
 
     // we'll pass rest of arguments to program
@@ -322,16 +322,28 @@ fn main() -> Result<()> {
 
     let mut just_run = b("run");
     let mut expression = true;
+    let display = b("display");
     use cache::quote;
     let mut code = if b("expression") {
         // Evaluating an expression: just debug print it out.
-        format!("println!(\"{{:?}}\",{});", quote(first_arg))
+        if display {
+            format!("println!(\"{{}}\",{});", quote(first_arg))
+        } else {
+            format!("println!(\"{{:?}}\",{});", quote(first_arg))
+        }
     } else if b("iterator") {
         // The expression is anything that implements IntoIterator
-        format!(
-            "for val in {} {{\n println!(\"{{:?}}\",val);\n}}",
-            quote(first_arg)
-        )
+        if display {
+            format!(
+                "for val in {} {{\n println!(\"{{}}\",val);\n}}",
+                quote(first_arg)
+            )
+        } else {
+            format!(
+                "for val in {} {{\n println!(\"{{:?}}\",val);\n}}",
+                quote(first_arg)
+            )
+        }
     } else if b("lines") {
         // The variable 'line' is available to an expression, evaluated for each line in stdin
         // But if the expression ends with '}' then don't dump out this value!
@@ -345,7 +357,11 @@ fn main() -> Result<()> {
         ",
         );
         s += &if !stmt {
-            format!("let val = {};\nprintln!(\"{{:?}}\",val);", first_arg)
+            if display {
+                format!("let val = {};\nprintln!(\"{{}}\",val);", first_arg)
+            } else {
+                format!("let val = {};\nprintln!(\"{{:?}}\",val);", first_arg)
+            }
         } else {
             format!("  {};", first_arg)
         };
